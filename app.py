@@ -243,4 +243,7 @@ with gr.Blocks(title="BeaGrace Health") as demo:
     """)
 
 if __name__ == "__main__":
+    print("Pre-loading Whisper medium model...")
+    get_pipe()
+    print("Whisper loaded. Starting app...")
     demo.launch(server_name="0.0.0.0", server_port=7860)
