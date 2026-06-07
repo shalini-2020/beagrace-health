@@ -1,0 +1,122 @@
+[
+  {
+    "dialect_expression": "Ori mi n dun mi",
+    "standard_yoruba": "Ori mi n dun mi",
+    "english_medical_term": "Headache",
+    "literal_meaning": "my head hurt"
+  },
+  {
+    "dialect_expression": "Ara mi n jo",
+    "standard_yoruba": "Ara mi n jo",
+    "english_medical_term": "Burning sensation",
+    "literal_meaning": "my body is burning"
+  },
+  {
+    "dialect_expression": "Inu mi n ru",
+    "standard_yoruba": "Inu rirun/ aya rinrin",
+    "english_medical_term": "Hunger/Nausea/gastrointestinal distress",
+    "literal_meaning": "My stomach is rumbling"
+  },
+  {
+    "dialect_expression": "Ori n fo mi",
+    "standard_yoruba": "Ori fifo",
+    "english_medical_term": "Head ache",
+    "literal_meaning": "My head is aching me"
+  },
+  {
+    "dialect_expression": "kpaja kpaja",
+    "standard_yoruba": "ti ro",
+    "english_medical_term": "Numbness/tingling sensation",
+    "literal_meaning": "Tingling sensation"
+  },
+  {
+    "dialect_expression": "O dun mi",
+    "standard_yoruba": "irora",
+    "english_medical_term": "Acute pain",
+    "literal_meaning": "its paining me"
+  },
+  {
+    "dialect_expression": "Ori mi ti gbono",
+    "standard_yoruba": "Orí mi gbóná",
+    "english_medical_term": "Fever/Hyperthermia",
+    "literal_meaning": "my head is hot"
+  },
+  {
+    "dialect_expression": "Ara mi gbona",
+    "standard_yoruba": "Ara mi gbóná",
+    "english_medical_term": "Fever/Hyperthermia",
+    "literal_meaning": "my body is hot"
+  },
+  {
+    "dialect_expression": "Ara ro mi",
+    "standard_yoruba": "Ara riro",
+    "english_medical_term": "Generalized body Aches",
+    "literal_meaning": "My body is paining me"
+  },
+  {
+    "dialect_expression": "Ara mi dun mi",
+    "standard_yoruba": "Àyà mi ń rora gidigidi",
+    "english_medical_term": "Angina pectoris / Chest Pain",
+    "literal_meaning": "i have sharp pain in my chest"
+  },
+  {
+    "dialect_expression": "Aya me dunmi gon gidi",
+    "standard_yoruba": "Irora náà ń po sì i",
+    "english_medical_term": "Acute/Severe Chest Pain",
+    "literal_meaning": "The pain is getting stronger"
+  },
+  {
+    "dialect_expression": "Oyji ko mi",
+    "standard_yoruba": "Ojú ń yí mi ká",
+    "english_medical_term": "Dizziness / Vertigo",
+    "literal_meaning": "My eyes are turning me"
+  },
+  {
+    "dialect_expression": "E mimi mi ko Kan le",
+    "standard_yoruba": "Èmi ń se ìsòro láti mí èèmí",
+    "english_medical_term": "Dyspnea / Shortness of breath",
+    "literal_meaning": "im having problem catching my breath"
+  },
+  {
+    "dialect_expression": "Es se mi ro mi",
+    "standard_yoruba": "Ìségun mi ń wú",
+    "english_medical_term": "Arthralgia / Joint Pain",
+    "literal_meaning": "my joint feels swollen"
+  },
+  {
+    "dialect_expression": "Ore mi mi ko le de",
+    "standard_yoruba": "Ara mi rẹ gan-an, èmí ò lè dúró",
+    "english_medical_term": "Asthenia / Generalized muscle weakness",
+    "literal_meaning": "I feel very weak and cannot stand"
+  },
+  {
+    "dialect_expression": "Kpajakpaja rum mi le se",
+    "standard_yoruba": "Kpajákpajá ń sán mi lẹ́sẹ̀",
+    "english_medical_term": "Peripheral Paresthesia (Numbness in extremities)",
+    "literal_meaning": "i have tingling sensation on my feet"
+  },
+  {
+    "dialect_expression": "Ono ofun mi nuy me",
+    "standard_yoruba": "Òfun mi ń yo mí",
+    "english_medical_term": "Pharyngitis / Sore throat irritation",
+    "literal_meaning": "My throat is scratching me"
+  },
+  {
+    "dialect_expression": "Oruru mu mi, o da bi mun i ba",
+    "standard_yoruba": "Èmi ń lágbára mi, mo ní ìmólára bí ẹni tí ó ní ibà",
+    "english_medical_term": "Diaphoresis and Pyrexia (Sweating and Feverishness)",
+    "literal_meaning": "I have been sweating and i feel like i have fever"
+  },
+  {
+    "dialect_expression": "Eti mi kpar o woo",
+    "standard_yoruba": "Etí mi ń pariwo",
+    "english_medical_term": "Tinnitus / Ringing ears",
+    "literal_meaning": "My ear is ringing"
+  },
+  {
+    "dialect_expression": "Ono funmi dunmi tim baru ko",
+    "standard_yoruba": "Ó ń rora mi nígbà tí mo bá ń kọ́ áwú",
+    "english_medical_term": "Tussis-induced chest pain (Pain upon coughing)",
+    "literal_meaning": "its pain me when i cough"
+  }
+]
