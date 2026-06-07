@@ -264,39 +264,39 @@ def translate_google(text):
 
 
 def transcribe_audio(audio_bytes: bytes) -> str | None:
-    import subprocess
+    import requests
+    import time
 
-    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
-        f.write(audio_bytes)
-        tmp_path = f.name
+    api_key = "b2732dcd7b3d488780c686a21aaf136e"  # paste your key here
 
-    try:
-        result = subprocess.run(
-            [sys.executable, "whisper_server.py", tmp_path],
-            capture_output=True,
-            text=True,
-            timeout=180,
+    # Step 1: Upload audio
+    upload_response = requests.post(
+        "https://api.assemblyai.com/v2/upload",
+        headers={"authorization": api_key},
+        data=audio_bytes,
+    )
+    upload_url = upload_response.json()["upload_url"]
+
+    # Step 2: Request transcription in Yoruba
+    transcript_response = requests.post(
+        "https://api.assemblyai.com/v2/transcript",
+        headers={"authorization": api_key, "content-type": "application/json"},
+        json={"audio_url": upload_url, "language_code": "yo"},
+    )
+    transcript_id = transcript_response.json()["id"]
+
+    # Step 3: Poll until complete
+    while True:
+        polling = requests.get(
+            f"https://api.assemblyai.com/v2/transcript/{transcript_id}",
+            headers={"authorization": api_key},
         )
-        stdout = result.stdout.strip()
-        if not stdout:
-            st.error(f"Whisper returned no output. Error: {result.stderr[-500:]}")
+        status = polling.json()["status"]
+        if status == "completed":
+            return polling.json()["text"]
+        elif status == "error":
             return None
-        data = json.loads(stdout)
-        if "error" in data:
-            st.error(f"Whisper error: {data['error']}")
-            return None
-        return data["transcript"]
-    except subprocess.TimeoutExpired:
-        st.error("Transcription timed out — try a shorter audio file.")
-        return None
-    except json.JSONDecodeError as e:
-        st.error(f"Could not parse Whisper output: {e}")
-        return None
-    finally:
-        try:
-            os.unlink(tmp_path)
-        except Exception:
-            pass
+        time.sleep(2)
 
 
 # ── Load glossary ─────────────────────────────────────────────────────────────
