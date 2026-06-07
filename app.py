@@ -1,3 +1,4 @@
+
 """
 BeaGrace Health — Gradio Web App
 ==================================
@@ -11,6 +12,8 @@ import os
 import sys
 import tempfile
 import unicodedata
+import warnings
+warnings.filterwarnings("ignore")
 
 import gradio as gr
 
@@ -47,6 +50,21 @@ def load_glossary():
         return DEFAULT_GLOSSARY
 
 glossary = load_glossary()
+
+# ── Whisper (loaded once) ─────────────────────────────────────────────────────
+_pipe = None
+
+def get_pipe():
+    global _pipe
+    if _pipe is None:
+        from transformers import pipeline
+        _pipe = pipeline(
+            "automatic-speech-recognition",
+            model="openai/whisper-medium",
+            device=-1,
+            return_timestamps=True,
+        )
+    return _pipe
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def normalize(text):
@@ -116,54 +134,32 @@ def translate_google(text):
         return None
 
 def transcribe_audio(audio_path: str) -> str | None:
-    import subprocess
     try:
-        result = subprocess.run(
-            [sys.executable, "whisper_server.py", audio_path],
-            capture_output=True,
-            text=True,
-            timeout=180,
-        )
-        stdout = result.stdout.strip()
-        if not stdout:
-            return None
-        data = json.loads(stdout)
-        if "error" in data:
-            return None
-        return data["transcript"]
-    except Exception:
+        import librosa
+        audio, _ = librosa.load(audio_path, sr=16000)
+        pipe = get_pipe()
+        result = pipe(audio, generate_kwargs={"language": "yo"})
+        return result["text"].strip()
+    except Exception as e:
+        print(f"Transcription error: {e}")
         return None
 
 # ── Main pipeline function ────────────────────────────────────────────────────
 def run_pipeline(audio_file, use_google):
     if audio_file is None:
-        return (
-            "❌ Please upload an audio file.",
-            "",
-            "",
-            "",
-        )
+        return "❌ Please upload an audio file.", "", "", ""
 
-    # Step 1 & 2: Transcribe
     transcript = transcribe_audio(audio_file)
     if not transcript:
-        return (
-            "❌ Transcription failed. Please try again.",
-            "",
-            "",
-            "",
-        )
+        return "❌ Transcription failed. Please try again.", "", "", ""
 
-    # Step 3: Glossary match
     matched, summary = run_matcher(transcript, glossary)
     unmatched = get_unmatched(transcript, matched)
 
-    # Step 4: Translate unmatched
     translated = None
     if unmatched and use_google:
         translated = translate_google(unmatched)
 
-    # Build findings text
     findings_text = ""
     if summary:
         for f in summary:
@@ -175,7 +171,6 @@ def run_pipeline(audio_file, use_google):
     else:
         findings_text = "⚠️ No glossary matches found."
 
-    # Build unmatched text
     unmatched_text = ""
     if unmatched:
         unmatched_text = f"**Yoruba:** {unmatched}\n\n"
@@ -184,7 +179,6 @@ def run_pipeline(audio_file, use_google):
         elif use_google:
             unmatched_text += "⚠️ Translation unavailable"
 
-    # Build handoff
     terms = [f["clinical_term"] for f in summary]
     if translated and translated != unmatched:
         handoff = f"Patient presents with: {', '.join(terms)}. Also reports: {translated}." if terms else translated
@@ -196,16 +190,10 @@ def run_pipeline(audio_file, use_google):
     return transcript, findings_text, unmatched_text, f"📋 {handoff}"
 
 # ── Gradio UI ─────────────────────────────────────────────────────────────────
-css = """
-.gradio-container { font-family: 'DM Sans', sans-serif; max-width: 800px; margin: 0 auto; }
-.hero { background: #1a3a2a; border-radius: 12px; padding: 24px; margin-bottom: 20px; color: white; }
-.handoff-box { background: #1a3a2a !important; border-radius: 12px !important; color: #e8f5ee !important; font-size: 1.1rem !important; }
-"""
-
-with gr.Blocks(css=css, title="BeaGrace Health") as demo:
+with gr.Blocks(title="BeaGrace Health") as demo:
 
     gr.HTML("""
-    <div class="hero">
+    <div style="background:#1a3a2a; border-radius:12px; padding:24px; margin-bottom:20px;">
         <div style="display:inline-block; background:#2d5c3f; color:#7ecf97; font-size:11px; font-weight:600; letter-spacing:1px; text-transform:uppercase; padding:3px 10px; border-radius:20px; margin-bottom:12px;">
             Technovation 2026 · BeaGrace Foundation
         </div>
@@ -224,12 +212,11 @@ with gr.Blocks(css=css, title="BeaGrace Health") as demo:
     </div>
     """)
 
-    with gr.Row():
-        audio_input = gr.Audio(
-            label="Upload patient audio (.mp3)",
-            type="filepath",
-            sources=["upload"],
-        )
+    audio_input = gr.Audio(
+        label="Upload patient audio (.mp3)",
+        type="filepath",
+        sources=["upload"],
+    )
 
     use_google = gr.Checkbox(
         label="Translate unmatched text with Google Translate",
@@ -241,11 +228,7 @@ with gr.Blocks(css=css, title="BeaGrace Health") as demo:
     transcript_out = gr.Textbox(label="Yoruba Transcript", interactive=False)
     findings_out   = gr.Markdown(label="Glossary Findings")
     unmatched_out  = gr.Markdown(label="Unmatched Text")
-    handoff_out    = gr.Textbox(
-        label="📋 Nurse Handoff",
-        interactive=False,
-        elem_classes=["handoff-box"],
-    )
+    handoff_out    = gr.Textbox(label="📋 Nurse Handoff", interactive=False)
 
     run_btn.click(
         fn=run_pipeline,
