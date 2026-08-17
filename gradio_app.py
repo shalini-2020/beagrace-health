@@ -360,7 +360,7 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
         <div class="step-arrow">→</div>
         <div class="step">📖 Fuzzy Glossary</div>
         <div class="step-arrow">→</div>
-        <div class="step">⚕️ Groq LLaMA-3.3</div>
+        <div class="step">⚕️ Groq GPT-OSS</div>
         <div class="step-arrow">→</div>
         <div class="step">📋 Clinical Note</div>
     </div>
