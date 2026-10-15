@@ -37,9 +37,9 @@ Audio Preprocessing (librosa)
 AssemblyAI Transcription (Yoruba ASR)
         ↓
 Fuzzy Glossary Matching (fuzzywuzzy)
-21-term Ekiti Yoruba medical vocabulary · 75% confidence threshold
+24-entry Ekiti Yoruba medical vocabulary · 75% confidence threshold
         ↓
-Groq LLaMA-3.3-70B Clinical Note Generation
+Groq GPT-OSS-120B Clinical Note Generation
         ↓
 Structured Nurse Handoff Note
 Symptom · Patient Report · Urgency · Recommended Action
@@ -69,7 +69,7 @@ Symptom · Patient Report · Urgency · Recommended Action
 | Audio preprocessing | librosa + soundfile |
 | Speech to text | AssemblyAI (Yoruba) |
 | Dialect matching | fuzzywuzzy |
-| Clinical structuring | Groq LLaMA-3.3-70B |
+| Clinical structuring | Groq GPT-OSS-120B |
 | Web interface | Gradio |
 | Hosting | Hugging Face Spaces |
 
@@ -80,7 +80,8 @@ Symptom · Patient Report · Urgency · Recommended Action
 ```
 beagrace-health/
 ├── app.py              # Gradio web app (main entry point)
-├── glossary.json       # 21-term Ekiti Yoruba medical vocabulary
+├── cli_transcribe.py   # Command-line version: one audio file → clinical note
+├── glossary.json       # 24-entry Ekiti Yoruba medical vocabulary
 ├── requirements.txt    # Python dependencies
 └── README.md
 ```
@@ -130,7 +131,7 @@ Open `http://127.0.0.1:7860` in your browser.
 
 ## 🗂️ Glossary
 
-The `glossary.json` file contains 21 Ekiti Yoruba dialect symptom expressions mapped to their clinical English equivalents. Each entry includes:
+The `glossary.json` file contains 24 entries (20 Ekiti Yoruba dialect symptom expressions plus spelling variants) mapped to their clinical English equivalents. Each entry includes:
 
 ```json
 {
@@ -162,7 +163,7 @@ For cases where confidence falls below 75%, the system falls back to Google Tran
 
 **Phase 1 — Live (June 2026)**
 - Ekiti Yoruba speech → clinical nurse handoff note
-- 21-symptom glossary
+- 24-entry symptom glossary
 - Deployed on Hugging Face Spaces
 
 **Phase 2 — October 2026**
@@ -192,7 +193,7 @@ This project is open source. The glossary and pipeline architecture are availabl
 ## 🙏 Acknowledgements
 
 - [AssemblyAI](https://assemblyai.com) for Yoruba speech recognition
-- [Groq](https://groq.com) for LLaMA-3.3-70B inference
+- [Groq](https://groq.com) for GPT-OSS-120B inference
 - [Hugging Face](https://huggingface.co) for free Spaces hosting
 - [AIVA / Technovation](https://technovation.org) and [UNICEF Generation Unlimited](https://www.generationunlimited.org) for the mentorship programme
 
