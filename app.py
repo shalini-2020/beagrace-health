@@ -85,15 +85,36 @@ def translate_to_english(text: str):
     return translated, '', 0.0
 
 
+EXAMPLES_FILE = Path('clinical_examples.json')
+
+
+def load_prompt_examples() -> str:
+    """Patient statements with clinical terms supplied by the BeaGrace team.
+    Only entries marked use_in_prompt are shown to the model; the rest are kept
+    for testing (see eval_notes.py)."""
+    if not EXAMPLES_FILE.exists():
+        return ''
+    with open(EXAMPLES_FILE, 'r', encoding='utf-8') as f:
+        examples = [e for e in json.load(f) if e.get('use_in_prompt')]
+    return '\n'.join(f'- "{e["patient_says"]}" -> {e["clinical_term"]}' for e in examples)
+
+
 def generate_clinical_note(english_symptom: str, literal_meaning: str) -> str:
     context = f'Literal meaning from patient in Ekiti Yoruba dialect: "{literal_meaning}"' if literal_meaning else ''
+    examples = load_prompt_examples()
+    examples_block = f"""
+Examples of how patients describe symptoms and the clinical term a nurse would record:
+{examples}
+""" if examples else ''
     prompt = f"""You are a clinical documentation assistant supporting nurses in a rural Nigerian healthcare facility.
 
 A patient has reported the following symptom (translated from Ekiti Yoruba):
 "{english_symptom}"
 {context}
-
+{examples_block}
 Important: interpret the symptom based strictly on the literal meaning provided. Do not assume urinary symptoms unless explicitly stated.
+Describe possible conditions as "possible" or "suggestive of"; do not state a diagnosis.
+Set Urgency to High for anything that could be life-threatening for the patient or, in pregnancy, the baby (for example: heavy bleeding, reduced or absent fetal movement, difficulty breathing, signs of stroke, seizures, thoughts of self-harm).
 
 Generate a brief structured nurse handoff note with these fields:
 - Symptom: (clinical term)
@@ -110,7 +131,7 @@ Be concise. Use standard clinical language."""
     payload = {
         'model': 'openai/gpt-oss-120b', 
         'messages': [{'role': 'user', 'content': prompt}],
-        'max_tokens': 300,
+        'max_tokens': 1000,  # gpt-oss reasons before answering; 300 could cut the note off
     }
     for attempt in range(3):
         try:

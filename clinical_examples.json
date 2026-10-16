@@ -1,0 +1,212 @@
+[
+  {
+    "patient_says": "I have been feeling dizzy and seeing dark spots since morning.",
+    "clinical_term": "Anemia / Hypertension",
+    "department": "Antenatal",
+    "use_in_prompt": false
+  },
+  {
+    "patient_says": "My feet and legs are swollen like bread, and my sandals don't fit.",
+    "clinical_term": "Edema / Preeclampsia sign",
+    "department": "Antenatal",
+    "use_in_prompt": true
+  },
+  {
+    "patient_says": "I am throwing up everything I eat, even water won't stay down.",
+    "clinical_term": "Hyperemesis gravidarum",
+    "department": "Antenatal",
+    "use_in_prompt": false
+  },
+  {
+    "patient_says": "There is a white, itchy discharge coming out of my body.",
+    "clinical_term": "Candidiasis / Vaginal infection",
+    "department": "Antenatal",
+    "use_in_prompt": true
+  },
+  {
+    "patient_says": "I feel a burning fire whenever I try to pass urine.",
+    "clinical_term": "Urinary tract infection (UTI)",
+    "department": "Antenatal",
+    "use_in_prompt": false
+  },
+  {
+    "patient_says": "My stomach is constantly hard and tight like a stone.",
+    "clinical_term": "Braxton Hicks / Early contractions",
+    "department": "Antenatal",
+    "use_in_prompt": false
+  },
+  {
+    "patient_says": "I am heavily pregnant but I cannot feel the baby moving today at all.",
+    "clinical_term": "Fetal distress",
+    "department": "Antenatal",
+    "use_in_prompt": false
+  },
+  {
+    "patient_says": "I have a terrible headache that refuses to go away even after sleeping.",
+    "clinical_term": "Severe hypertension",
+    "department": "Antenatal",
+    "use_in_prompt": false
+  },
+  {
+    "patient_says": "I am feeling a dull ache in my lower back that comes and goes.",
+    "clinical_term": "Early labor signs",
+    "department": "Antenatal",
+    "use_in_prompt": false
+  },
+  {
+    "patient_says": "My skin is itching me all over, especially the palms of my hands.",
+    "clinical_term": "Obstetric cholestasis",
+    "department": "Antenatal",
+    "use_in_prompt": false
+  },
+  {
+    "patient_says": "I am feeling very weak, breathless, and my heart is beating fast just from walking.",
+    "clinical_term": "Severe anemia",
+    "department": "Antenatal",
+    "use_in_prompt": false
+  },
+  {
+    "patient_says": "I see small drops of blood on my underwear when I wipe.",
+    "clinical_term": "Spotting / Threatened abortion",
+    "department": "Antenatal",
+    "use_in_prompt": false
+  },
+  {
+    "patient_says": "My breasts are swollen, hard like rock, and very painful to touch.",
+    "clinical_term": "Breast engorgement / Mastitis",
+    "department": "Postnatal",
+    "use_in_prompt": true
+  },
+  {
+    "patient_says": "The blood coming out of me smells highly offensive and rotten.",
+    "clinical_term": "Puerperal sepsis / Uterine infection",
+    "department": "Postnatal",
+    "use_in_prompt": false
+  },
+  {
+    "patient_says": "The place where they cut/stitched me is tearing open and bringing out pus.",
+    "clinical_term": "Episiotomy breakdown / infection",
+    "department": "Postnatal",
+    "use_in_prompt": false
+  },
+  {
+    "patient_says": "I am running a very high hotness of the body (fever) since yesterday.",
+    "clinical_term": "Postpartum infection",
+    "department": "Postnatal",
+    "use_in_prompt": false
+  },
+  {
+    "patient_says": "My left calf is swollen, hot, and pains me severely when I stand up.",
+    "clinical_term": "Deep vein thrombosis",
+    "department": "Postnatal",
+    "use_in_prompt": false
+  },
+  {
+    "patient_says": "I am feeling deeply sad, crying for no reason, and I don't want to hold my baby.",
+    "clinical_term": "Postpartum depression",
+    "department": "Postnatal",
+    "use_in_prompt": false
+  },
+  {
+    "patient_says": "I am unable to pass urine at all since I delivered this morning.",
+    "clinical_term": "Urinary retention",
+    "department": "Postnatal",
+    "use_in_prompt": false
+  },
+  {
+    "patient_says": "I am seeing strange things and hearing voices telling me to hurt myself.",
+    "clinical_term": "Postpartum psychosis",
+    "department": "Postnatal",
+    "use_in_prompt": false
+  },
+  {
+    "patient_says": "I feel severe throbbing pain in my lower stomach when the baby is breastfeeding.",
+    "clinical_term": "Afterpains / Uterine involution",
+    "department": "Postnatal",
+    "use_in_prompt": false
+  },
+  {
+    "patient_says": "I am losing too much blood again, days after the bleeding originally slowed down.",
+    "clinical_term": "Secondary postpartum hemorrhage",
+    "department": "Postnatal",
+    "use_in_prompt": false
+  },
+  {
+    "patient_says": "I feel completely drained, lightheaded, and dizzy whenever I sit up in bed.",
+    "clinical_term": "Postpartum anemia",
+    "department": "Postnatal",
+    "use_in_prompt": false
+  },
+  {
+    "patient_says": "He was involved in an accident and blood is spurting out of his thigh like a tap.",
+    "clinical_term": "Arterial hemorrhage",
+    "department": "Accident & Emergency",
+    "use_in_prompt": false
+  },
+  {
+    "patient_says": "My stomach is suddenly tight, hard like a stone, and the pain is making me roll on the floor.",
+    "clinical_term": "Acute abdomen / Peritonitis",
+    "department": "Accident & Emergency",
+    "use_in_prompt": false
+  },
+  {
+    "patient_says": "His body suddenly went stiff, his teeth locked, and he is foaming at the mouth.",
+    "clinical_term": "Generalized seizure / Status epilepticus",
+    "department": "Accident & Emergency",
+    "use_in_prompt": false
+  },
+  {
+    "patient_says": "I cannot breathe, it feels like someone is standing on my chest and I am suffocating.",
+    "clinical_term": "Severe asthma attack / Pulmonary embolism",
+    "department": "Accident & Emergency",
+    "use_in_prompt": false
+  },
+  {
+    "patient_says": "She fell down, cannot move her left arm and leg, and her mouth is drooping to one side.",
+    "clinical_term": "Acute stroke",
+    "department": "Accident & Emergency",
+    "use_in_prompt": true
+  },
+  {
+    "patient_says": "I have a sharp, tearing pain in my lower right stomach that started around my belly button.",
+    "clinical_term": "Acute appendicitis",
+    "department": "Accident & Emergency",
+    "use_in_prompt": false
+  },
+  {
+    "patient_says": "He drank chemical/poison by mistake and he is vomiting blood and crying.",
+    "clinical_term": "Acute poisoning",
+    "department": "Accident & Emergency",
+    "use_in_prompt": false
+  },
+  {
+    "patient_says": "I haven't been able to pass urine since yesterday; my lower belly is swollen and bursting.",
+    "clinical_term": "Acute urinary retention",
+    "department": "Accident & Emergency",
+    "use_in_prompt": false
+  },
+  {
+    "patient_says": "The fire/hot oil poured on my skin, and it is peeling off with big blisters.",
+    "clinical_term": "Severe burns",
+    "department": "Accident & Emergency",
+    "use_in_prompt": false
+  },
+  {
+    "patient_says": "I am feeling very cold, shivering, my heart is racing, and I feel like passing out.",
+    "clinical_term": "Septic / Hypovolemic shock",
+    "department": "Accident & Emergency",
+    "use_in_prompt": false
+  },
+  {
+    "patient_says": "A snake bit my ankle in the farm, and the whole leg is swelling and turning black.",
+    "clinical_term": "Envenomation / Snakebite",
+    "department": "Accident & Emergency",
+    "use_in_prompt": false
+  },
+  {
+    "patient_says": "He hit his head hard, he is vomiting repeatedly, and he doesn't know where he is.",
+    "clinical_term": "Concussion / Traumatic brain injury",
+    "department": "Accident & Emergency",
+    "use_in_prompt": false
+  }
+]

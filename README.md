@@ -37,7 +37,7 @@ Audio Preprocessing (librosa)
 AssemblyAI Transcription (Yoruba ASR)
         ↓
 Fuzzy Glossary Matching (fuzzywuzzy)
-24-entry Ekiti Yoruba medical vocabulary · 75% confidence threshold
+37-entry Ekiti Yoruba medical vocabulary · 75% confidence threshold
         ↓
 Groq GPT-OSS-120B Clinical Note Generation
         ↓
@@ -81,7 +81,7 @@ Symptom · Patient Report · Urgency · Recommended Action
 beagrace-health/
 ├── app.py              # Gradio web app (main entry point)
 ├── cli_transcribe.py   # Command-line version: one audio file → clinical note
-├── glossary.json       # 24-entry Ekiti Yoruba medical vocabulary
+├── glossary.json       # 37-entry Ekiti Yoruba medical vocabulary
 ├── requirements.txt    # Python dependencies
 └── README.md
 ```
@@ -131,14 +131,15 @@ Open `http://127.0.0.1:7860` in your browser.
 
 ## 🗂️ Glossary
 
-The `glossary.json` file contains 24 entries (20 Ekiti Yoruba dialect symptom expressions plus spelling variants) mapped to their clinical English equivalents. Each entry includes:
+The `glossary.json` file contains 37 entries: Ekiti Yoruba symptom expressions (with spelling variants), including 12 Accident & Emergency phrases. Each entry is tagged with the department it came from mapped to their clinical English equivalents. Each entry includes:
 
 ```json
 {
   "dialect_expression": "Ara mi n jo",
   "standard_yoruba": "Ara mi n jo",
   "english_medical_term": "Burning sensation",
-  "literal_meaning": "my body is burning"
+  "literal_meaning": "my body is burning",
+  "department": "General"
 }
 ```
 
@@ -163,7 +164,7 @@ For cases where confidence falls below 75%, the system falls back to Google Tran
 
 **Phase 1 — Live (June 2026)**
 - Ekiti Yoruba speech → clinical nurse handoff note
-- 24-entry symptom glossary
+- 37-entry symptom glossary
 - Deployed on Hugging Face Spaces
 
 **Phase 2 — October 2026**
