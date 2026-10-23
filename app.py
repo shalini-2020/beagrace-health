@@ -15,6 +15,8 @@ import assemblyai as aai
 import librosa
 import soundfile as sf
 
+from usage_log import log_usage, log_feedback
+
 GLOSSARY_FILE = Path('glossary.json')
 ASSEMBLYAI_API_KEY = os.environ.get('ASSEMBLYAI_API_KEY')
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
@@ -180,29 +182,44 @@ Be concise. Use standard clinical language."""
     return call_groq(prompt, max_tokens=1000)
 
 
-def process_audio(audio_file):
+DEPARTMENTS = ['Not specified', 'General outpatient (GOPD)', 'Antenatal', 'Postnatal',
+               'Accident & Emergency', 'Medical/Surgical ward', 'Other']
+
+
+def extract_urgency(note: str):
+    match = re.search(r'Urgency\W*\s*(Low|Medium|High)', note or '', re.IGNORECASE)
+    return match.group(1).capitalize() if match else None
+
+
+def process_audio(audio_file, department='Not specified'):
+    """Returns the 5 output boxes, the note id (for feedback) and a cleared feedback message."""
     if audio_file is None:
-        return '', '', '', '', ''
+        return '', '', '', '', '', '', ''
     transcript = english_symptom = literal_meaning = confidence_str = ''
     try:
         transcript = transcribe_audio(audio_file)
         if not transcript:
+            log_usage(department, 'no_speech')
             return ('No speech detected. Please record again, speaking clearly '
-                    'for a few seconds.'), '', '', '', ''
+                    'for a few seconds.'), '', '', '', '', '', ''
         english_symptom, literal_meaning, confidence = translate_to_english(transcript)
         confidence_str = (f'{confidence:.0%} glossary match' if confidence > 0
                           else 'No glossary match - AI translation, needs nurse review')
         clinical_note = generate_clinical_note(english_symptom, literal_meaning)
+        note_id = log_usage(department, 'note', glossary_match=confidence > 0,
+                            confidence=confidence, symptom=english_symptom,
+                            urgency=extract_urgency(clinical_note))
         if confidence == 0:
             clinical_note = ('LOW CONFIDENCE - phrase not in glossary. '
                              'Confirm with the patient before acting.\n\n' + clinical_note)
-        return transcript, english_symptom, literal_meaning, confidence_str, clinical_note
+        return transcript, english_symptom, literal_meaning, confidence_str, clinical_note, note_id, ''
     except Exception as e:
         import traceback
         traceback.print_exc()
+        log_usage(department, 'error')
         # Keep whatever already worked so the nurse still sees it
         return (transcript or f'Error: {e}', english_symptom, literal_meaning,
-                confidence_str, f'Could not finish: {e}\nPlease try again in a moment.')
+                confidence_str, f'Could not finish: {e}\nPlease try again in a moment.', '', '')
     finally:
         # Remove only the cleaned wav temp file — no text files are written
         if audio_file:
@@ -434,6 +451,11 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
                 label='Upload audio file (Ekiti Yoruba)',
                 type='filepath',
             )
+            department_input = gr.Dropdown(
+                choices=DEPARTMENTS,
+                value='Not specified',
+                label='Department (optional)',
+            )
             submit_btn = gr.Button(
                 '⚕️ Generate Clinical Note',
                 elem_id='submit-btn',
@@ -458,11 +480,28 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
 
     gr.HTML('<div class="panel-label" style="margin-top:20px;">📋 Clinical Nurse Handoff Note</div>')
     clinical_note_out = gr.Textbox(
-        label='',
+        label='Clinical note',
+        show_label=False,
         interactive=False,
         lines=7,
         elem_id='clinical-note',
     )
+
+    note_id_state = gr.State('')
+    gr.HTML('<div class="panel-label" style="margin-top:20px;">✅ Was this note correct?</div>')
+    with gr.Row():
+        correct_btn = gr.Button('👍 Note is correct')
+        wrong_btn = gr.Button('👎 Note needs changes')
+    feedback_comment = gr.Textbox(
+        label='Comment (optional) - please do not include patient names or details',
+        lines=2,
+    )
+    feedback_status = gr.Markdown('')
+    gr.HTML("""
+    <p style="font-size:0.78rem; color:#6b9080; margin-top:6px;">
+        🔒 Usage is counted anonymously to improve the app. No audio, transcripts or patient details are stored.
+    </p>
+    """)
 
     gr.HTML("""
     <div class="footer-bar">
@@ -474,8 +513,26 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
 
     submit_btn.click(
         fn=process_audio,
-        inputs=[audio_input],
-        outputs=[transcript_out, english_out, meaning_out, confidence_out, clinical_note_out],
+        inputs=[audio_input, department_input],
+        outputs=[transcript_out, english_out, meaning_out, confidence_out, clinical_note_out,
+                 note_id_state, feedback_status],
+    )
+
+    def record_feedback(note_id, comment, rating):
+        if not note_id:
+            return 'Please generate a note first.', comment
+        log_feedback(note_id, rating, comment)
+        return 'Thank you, your feedback was saved.', ''
+
+    correct_btn.click(
+        fn=lambda note_id, comment: record_feedback(note_id, comment, 'correct'),
+        inputs=[note_id_state, feedback_comment],
+        outputs=[feedback_status, feedback_comment],
+    )
+    wrong_btn.click(
+        fn=lambda note_id, comment: record_feedback(note_id, comment, 'needs_changes'),
+        inputs=[note_id_state, feedback_comment],
+        outputs=[feedback_status, feedback_comment],
     )
 
 if __name__ == '__main__':
