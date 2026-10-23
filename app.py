@@ -3,6 +3,7 @@ import json
 import re
 import os
 import time
+import unicodedata
 import requests
 import numpy as np
 from pathlib import Path
@@ -27,6 +28,10 @@ def load_glossary() -> list:
 
 
 def clean_text(text: str) -> str:
+    # Remove Yoruba tone marks and underdots (e.g. "Orí mi fọ́ mi" -> "ori mi fo mi")
+    # so speech-recognition output matches the plain-letter glossary entries.
+    text = unicodedata.normalize('NFKD', text)
+    text = ''.join(ch for ch in text if not unicodedata.combining(ch))
     return re.sub(r'\s+', ' ', re.sub(r'[^\w\s]', ' ', text)).lower().strip()
 
 
