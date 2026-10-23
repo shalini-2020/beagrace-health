@@ -182,7 +182,7 @@
     "department": "Accident & Emergency"
   },
   {
-    "dialect_expression": "Ara re dede le eyin enu re pade ti ito n jade ni enu re bu wipe o ni arun warapa",
+    "dialect_expression": "Ara re dede le eyin enu re pade ti ito n jade ni enu re bi wipe o ni arun warapa",
     "standard_yoruba": "",
     "english_medical_term": "Generalized seizure / Status epilepticus",
     "literal_meaning": "His body suddenly went stiff, his teeth locked, and he is foaming at the mouth",
@@ -210,7 +210,7 @@
     "department": "Accident & Emergency"
   },
   {
-    "dialect_expression": "Se ni o sesi da majele oogun oloro je ti ofi du wipe se ni o po eje ode n sukun",
+    "dialect_expression": "Se ni o sesi da majele oogun oloro je ti ofi di wipe se ni o po eje ode n sukun",
     "standard_yoruba": "",
     "english_medical_term": "Acute poisoning",
     "literal_meaning": "He drank chemical/poison by mistake and he is vomiting blood and crying",
@@ -257,5 +257,166 @@
     "english_medical_term": "Abdominal pain / Stomach ache",
     "literal_meaning": "I have stomach ache",
     "department": "Medical/Surgical Ward"
+  },
+  {
+    "dialect_expression": "Oyi ti n komi mo de tun ri eje tonto lati owuro",
+    "standard_yoruba": "",
+    "english_medical_term": "Anemia / Hypertension",
+    "literal_meaning": "I have been feeling dizzy and seeing dark spots since morning",
+    "department": "Antenatal"
+  },
+  {
+    "dialect_expression": "Ese mi ati owo mi ti n wu bi buredi ese mi de wo bata mi",
+    "standard_yoruba": "",
+    "english_medical_term": "Edema / Preeclampsia sign",
+    "literal_meaning": "My feet and legs are swollen like bread, and my sandals don't fit",
+    "department": "Antenatal"
+  },
+  {
+    "dialect_expression": "Mo ti n bi kete oun mo je lataaro koda omi o duro ninunmi",
+    "standard_yoruba": "",
+    "english_medical_term": "Hyperemesis gravidarum",
+    "literal_meaning": "I am throwing up everything I eat, even water won't stay down",
+    "department": "Antenatal"
+  },
+  {
+    "dialect_expression": "Oun funfun kon feerefe kee jade lati oju ara mi o de nyun mi",
+    "standard_yoruba": "",
+    "english_medical_term": "Candidiasis / Vaginal infection",
+    "literal_meaning": "There is a white, itchy discharge coming out of my body",
+    "department": "Antenatal"
+  },
+  {
+    "dialect_expression": "Moni imolara bi wipe nkon njomi ti mo ba ti fe to",
+    "standard_yoruba": "",
+    "english_medical_term": "Urinary tract infection (UTI)",
+    "literal_meaning": "I feel a burning fire whenever I try to pass urine",
+    "department": "Antenatal"
+  },
+  {
+    "dialect_expression": "Iku mi le digbi bi okuta",
+    "standard_yoruba": "",
+    "english_medical_term": "Braxton Hicks / Early contractions",
+    "literal_meaning": "My stomach is constantly hard and tight like a stone",
+    "department": "Antenatal"
+  },
+  {
+    "dialect_expression": "Oyun mi ti tobi daada sugbon ni oni mi ko ni imora lara wipe omo no mi ninu ikun mi rara",
+    "standard_yoruba": "",
+    "english_medical_term": "Fetal distress (reduced/absent fetal movement)",
+    "literal_meaning": "I am heavily pregnant but I cannot feel the baby moving today at all",
+    "department": "Antenatal"
+  },
+  {
+    "dialect_expression": "Mo ni ori fifo gidigidi bi moba sun gan e lo",
+    "standard_yoruba": "",
+    "english_medical_term": "Severe hypertension",
+    "literal_meaning": "I have a terrible headache that refuses to go away even after sleeping",
+    "department": "Antenatal"
+  },
+  {
+    "dialect_expression": "Isale eyin mi ma ndumi koda oma n wa ode tun ma n lo",
+    "standard_yoruba": "",
+    "english_medical_term": "Early labor signs",
+    "literal_meaning": "I am feeling a dull ache in my lower back that comes and goes",
+    "department": "Antenatal"
+  },
+  {
+    "dialect_expression": "Gbogbo ara mi ma nyun mi paapaa atelewo mi",
+    "standard_yoruba": "",
+    "english_medical_term": "Obstetric cholestasis",
+    "literal_meaning": "My skin is itching me all over, especially the palms of my hands",
+    "department": "Antenatal"
+  },
+  {
+    "dialect_expression": "Se ni ma n remi bi eniwipe mi o ni imi okon mi dun lemolemo bi mo ba ti nrin",
+    "standard_yoruba": "",
+    "english_medical_term": "Severe anemia",
+    "literal_meaning": "I am feeling very weak, breathless, and my heart is beating fast just from walking",
+    "department": "Antenatal"
+  },
+  {
+    "dialect_expression": "Mo ma nri eje tonto ni awo tele mi ti mo ba ti nu oju ara",
+    "standard_yoruba": "",
+    "english_medical_term": "Spotting / Threatened abortion",
+    "literal_meaning": "I see small drops of blood on my underwear when I wipe",
+    "department": "Antenatal"
+  },
+  {
+    "dialect_expression": "Omu mi nwu, nle bi okuta bi moba ti fi owo kon se ni o ma ndunmi",
+    "standard_yoruba": "",
+    "english_medical_term": "Breast engorgement / Mastitis",
+    "literal_meaning": "My breasts are swollen, hard like rock, and very painful to touch",
+    "department": "Postnatal"
+  },
+  {
+    "dialect_expression": "Eje ti o ma njade ni ara mi se ni oma n run bi eyin ti oti baje",
+    "standard_yoruba": "",
+    "english_medical_term": "Puerperal sepsis / Uterine infection",
+    "literal_meaning": "The blood coming out of me smells highly offensive and rotten",
+    "department": "Postnatal"
+  },
+  {
+    "dialect_expression": "Ibi kon la ni ara mi kon ron pada ti tu ode nmu etitu sita",
+    "standard_yoruba": "",
+    "english_medical_term": "Episiotomy breakdown / infection",
+    "literal_meaning": "The place where they cut/stitched me is tearing open and bringing out pus",
+    "department": "Postnatal"
+  },
+  {
+    "dialect_expression": "Gbogbo ara mi lon gbono gidi lati ano",
+    "standard_yoruba": "",
+    "english_medical_term": "Postpartum infection (fever)",
+    "literal_meaning": "I am running a very high hotness of the body (fever) since yesterday",
+    "department": "Postnatal"
+  },
+  {
+    "dialect_expression": "Iha mi egbe osi e wu e gbono ode tun dunmi nigba ki igba ti mo ba ti dide",
+    "standard_yoruba": "",
+    "english_medical_term": "Deep vein thrombosis",
+    "literal_meaning": "My left calf is swollen, hot, and pains me severely when I stand up",
+    "department": "Postnatal"
+  },
+  {
+    "dialect_expression": "Inu mi n baje mode tun sunkun lai ni idi kon pataki ode tun semi bi wipe kin ma di omomi mu",
+    "standard_yoruba": "",
+    "english_medical_term": "Postpartum depression",
+    "literal_meaning": "I am feeling deeply sad, crying for no reason, and I don't want to hold my baby",
+    "department": "Postnatal"
+  },
+  {
+    "dialect_expression": "Lati aaro ti Mo ti bi omo, mi o le to",
+    "standard_yoruba": "",
+    "english_medical_term": "Urinary retention",
+    "literal_meaning": "I am unable to pass urine at all since I delivered this morning",
+    "department": "Postnatal"
+  },
+  {
+    "dialect_expression": "Mo nri oun abami Mo de tun gbo oun buburu bi wipe kin se ara mi lese",
+    "standard_yoruba": "",
+    "english_medical_term": "Postpartum psychosis",
+    "literal_meaning": "I am seeing strange things and hearing voices telling me to hurt myself",
+    "department": "Postnatal"
+  },
+  {
+    "dialect_expression": "Mo ni imolara irora ni isale ikun mi ti omo mi ba ti nmu omu",
+    "standard_yoruba": "",
+    "english_medical_term": "Afterpains / Uterine involution",
+    "literal_meaning": "I feel severe throbbing pain in my lower stomach when the baby is breastfeeding",
+    "department": "Postnatal"
+  },
+  {
+    "dialect_expression": "Mo n padanu eje pupo miran nigba ti eje ti tele bati n dawo duro",
+    "standard_yoruba": "",
+    "english_medical_term": "Secondary postpartum hemorrhage",
+    "literal_meaning": "I am losing too much blood again, days after the bleeding originally slowed down",
+    "department": "Postnatal"
+  },
+  {
+    "dialect_expression": "Se ni oma n semi bi wipe oyi oju n komi ti ori mi ma n fuye ti mo ba ti joko si ori ibusun mi",
+    "standard_yoruba": "",
+    "english_medical_term": "Postpartum anemia",
+    "literal_meaning": "I feel completely drained, lightheaded, and dizzy whenever I sit up in bed",
+    "department": "Postnatal"
   }
 ]

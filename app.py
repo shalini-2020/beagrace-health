@@ -45,9 +45,15 @@ def fuzzy_match_glossary(text: str, threshold: int = 75) -> list:
         if not dialect:
             continue
         dialect_clean = clean_text(dialect)
-        token_score = fuzz.token_set_ratio(text_clean, dialect_clean)
-        partial_score = fuzz.partial_ratio(text_clean, dialect_clean)
-        best_score = max(token_score, partial_score)
+        if len(dialect_clean) <= len(text_clean):
+            # Glossary phrase is shorter: look for it anywhere inside what was said
+            best_score = max(fuzz.token_set_ratio(text_clean, dialect_clean),
+                             fuzz.partial_ratio(text_clean, dialect_clean))
+        else:
+            # Patient said less than the glossary phrase: compare the whole thing,
+            # so a few words can't count as a full match for a long sentence
+            best_score = max(fuzz.ratio(text_clean, dialect_clean),
+                             fuzz.token_sort_ratio(text_clean, dialect_clean))
         if best_score >= threshold:
             matches.append({
                 'ratio': best_score / 100.0,
@@ -55,7 +61,9 @@ def fuzzy_match_glossary(text: str, threshold: int = 75) -> list:
                 'english': english,
                 'meaning': entry.get('literal_meaning', ''),
             })
-    return sorted(matches, key=lambda x: x['ratio'], reverse=True)
+    # On equal scores prefer the longer, more specific phrase, so a short entry
+    # like "O dun mi" can't beat a full sentence that happens to contain it.
+    return sorted(matches, key=lambda x: (x['ratio'], len(clean_text(x['dialect']))), reverse=True)
 
 
 def preprocess_audio(audio_path: str) -> str:
