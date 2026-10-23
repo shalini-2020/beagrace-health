@@ -11,7 +11,6 @@ load_dotenv()
 
 from fuzzywuzzy import fuzz
 import assemblyai as aai
-from deep_translator import GoogleTranslator
 import librosa
 import soundfile as sf
 
@@ -76,12 +75,53 @@ def transcribe_audio(audio_path: str) -> str:
     return transcript.text.strip()
 
 
+def call_groq(prompt: str, max_tokens: int = 1000) -> str:
+    """Send one prompt to Groq, retrying up to 3 times."""
+    headers = {
+        'Authorization': f'Bearer {GROQ_API_KEY}',
+        'Content-Type': 'application/json',
+    }
+    payload = {
+        'model': 'openai/gpt-oss-120b',
+        'messages': [{'role': 'user', 'content': prompt}],
+        'max_tokens': max_tokens,  # gpt-oss reasons before answering, so leave room
+    }
+    last_error = None
+    for attempt in range(3):
+        try:
+            print(f'  [Groq] attempt {attempt + 1}')
+            response = requests.post(
+                'https://api.groq.com/openai/v1/chat/completions',
+                headers=headers,
+                json=payload,
+                timeout=30,
+            )
+            response.raise_for_status()
+            content = (response.json()['choices'][0]['message'].get('content') or '').strip()
+            if content:
+                return content
+            last_error = 'empty response'
+        except Exception as e:
+            last_error = e
+            print(f'  [Groq] attempt {attempt + 1} failed: {e}')
+        time.sleep(3)
+    raise RuntimeError(f'AI service unavailable after 3 tries ({last_error}).')
+
+
 def translate_to_english(text: str):
+    """Returns (english, literal_meaning, glossary_confidence).
+    Uses the glossary first; if nothing matches, asks the LLM to translate."""
     matches = fuzzy_match_glossary(text)
     if matches:
         match = matches[0]
         return match['english'], match['meaning'], match['ratio']
-    translated = GoogleTranslator(source='yo', target='en').translate(text)
+    prompt = f"""Translate this Yoruba speech (Ekiti dialect, transcribed by speech recognition, may contain errors) into plain English.
+Reply with the English translation only, one short sentence. If it cannot be understood, reply exactly: UNCLEAR
+
+Yoruba: {text}"""
+    translated = call_groq(prompt, max_tokens=400)
+    if translated.strip().upper().startswith('UNCLEAR'):
+        return 'Unclear - please ask the patient to repeat', '', 0.0
     return translated, '', 0.0
 
 
@@ -124,45 +164,32 @@ Generate a brief structured nurse handoff note with these fields:
 
 Be concise. Use standard clinical language."""
 
-    headers = {
-        'Authorization': f'Bearer {GROQ_API_KEY}',
-        'Content-Type': 'application/json',
-    }
-    payload = {
-        'model': 'openai/gpt-oss-120b', 
-        'messages': [{'role': 'user', 'content': prompt}],
-        'max_tokens': 1000,  # gpt-oss reasons before answering; 300 could cut the note off
-    }
-    for attempt in range(3):
-        try:
-            print(f'  [Groq] attempt {attempt + 1}')
-            response = requests.post(
-                'https://api.groq.com/openai/v1/chat/completions',
-                headers=headers,
-                json=payload,
-                timeout=30,
-            )
-            response.raise_for_status()
-            return response.json()['choices'][0]['message']['content'].strip()
-        except Exception as e:
-            print(f'  [Groq] attempt {attempt + 1} failed: {e}')
-            time.sleep(3)
-    raise RuntimeError('Clinical note generation failed after 3 retries.')
+    return call_groq(prompt, max_tokens=1000)
 
 
 def process_audio(audio_file):
     if audio_file is None:
         return '', '', '', '', ''
+    transcript = english_symptom = literal_meaning = confidence_str = ''
     try:
         transcript = transcribe_audio(audio_file)
+        if not transcript:
+            return ('No speech detected. Please record again, speaking clearly '
+                    'for a few seconds.'), '', '', '', ''
         english_symptom, literal_meaning, confidence = translate_to_english(transcript)
+        confidence_str = (f'{confidence:.0%} glossary match' if confidence > 0
+                          else 'No glossary match - AI translation, needs nurse review')
         clinical_note = generate_clinical_note(english_symptom, literal_meaning)
-        confidence_str = f'{confidence:.0%} glossary match' if confidence > 0 else 'Google Translate fallback'
+        if confidence == 0:
+            clinical_note = ('LOW CONFIDENCE - phrase not in glossary. '
+                             'Confirm with the patient before acting.\n\n' + clinical_note)
         return transcript, english_symptom, literal_meaning, confidence_str, clinical_note
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return f'Error: {str(e)}', '', '', '', ''
+        # Keep whatever already worked so the nurse still sees it
+        return (transcript or f'Error: {e}', english_symptom, literal_meaning,
+                confidence_str, f'Could not finish: {e}\nPlease try again in a moment.')
     finally:
         # Remove only the cleaned wav temp file — no text files are written
         if audio_file:

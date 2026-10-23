@@ -156,7 +156,7 @@ Symptoms covered include headache, burning sensation, nausea, fever, body aches,
 | Clinical note structure | 4/4 fields on every output |
 | End-to-end latency | ~10-15 seconds |
 
-For cases where confidence falls below 75%, the system falls back to Google Translate. Manual review flagging for low-confidence outputs is planned for Phase 2.
+For cases where confidence falls below 75%, the system translates with the LLM instead and marks the note LOW CONFIDENCE for nurse review.
 
 ---
 
