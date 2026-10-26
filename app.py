@@ -18,19 +18,35 @@ import soundfile as sf
 from usage_log import log_usage, log_feedback
 from safety import check_danger, danger_banner
 from learning import submit_suggestion, pending_suggestions, review, learned_entries
+from impact import compute_stats, impact_html, TEST_DEPARTMENT
 
 GLOSSARY_FILE = Path('glossary.json')
+
+# Languages the app supports. Add a language by adding an entry to languages.json
+# plus its glossary file (see README: "Adding a new language").
+try:
+    LANGUAGES = json.loads(Path('languages.json').read_text(encoding='utf-8'))
+except Exception:
+    LANGUAGES = {'yo': {'label': 'Yoruba (Ekiti)', 'name': 'Yoruba', 'dialect_note': 'Ekiti dialect',
+                        'speech_code': 'yo', 'glossary_file': 'glossary.json',
+                        'danger_keywords': 'yoruba_keywords'}}
+DEFAULT_LANG = next(iter(LANGUAGES))
+
+
+def lang_cfg(lang: str) -> dict:
+    return LANGUAGES.get(lang) or LANGUAGES[DEFAULT_LANG]
 ASSEMBLYAI_API_KEY = os.environ.get('ASSEMBLYAI_API_KEY')
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
 
 
-def load_glossary() -> list:
+def load_glossary(lang: str = DEFAULT_LANG) -> list:
     entries = []
-    if GLOSSARY_FILE.exists():
-        with open(GLOSSARY_FILE, 'r', encoding='utf-8') as f:
+    path = Path(lang_cfg(lang).get('glossary_file', 'glossary.json'))
+    if path.exists():
+        with open(path, 'r', encoding='utf-8') as f:
             entries = json.load(f)
     # plus phrases approved by a reviewer through the learning loop
-    return entries + learned_entries()
+    return entries + learned_entries(lang)
 
 
 def clean_text(text: str) -> str:
@@ -41,8 +57,8 @@ def clean_text(text: str) -> str:
     return re.sub(r'\s+', ' ', re.sub(r'[^\w\s]', ' ', text)).lower().strip()
 
 
-def fuzzy_match_glossary(text: str, threshold: int = 75) -> list:
-    glossary = load_glossary()
+def fuzzy_match_glossary(text: str, threshold: int = 75, lang: str = DEFAULT_LANG) -> list:
+    glossary = load_glossary(lang)
     matches = []
     text_clean = clean_text(text)
     for entry in glossary:
@@ -83,10 +99,10 @@ def preprocess_audio(audio_path: str) -> str:
     return cleaned_path
 
 
-def transcribe_audio(audio_path: str) -> str:
+def transcribe_audio(audio_path: str, lang: str = DEFAULT_LANG) -> str:
     cleaned_path = preprocess_audio(audio_path)
     aai.settings.api_key = ASSEMBLYAI_API_KEY
-    config = aai.TranscriptionConfig(language_code='yo')
+    config = aai.TranscriptionConfig(language_code=lang_cfg(lang).get('speech_code', 'yo'))
     transcriber = aai.Transcriber(config=config)
     transcript = transcriber.transcribe(cleaned_path)
     if transcript.status == aai.TranscriptStatus.error:
@@ -127,17 +143,18 @@ def call_groq(prompt: str, max_tokens: int = 1000) -> str:
     raise RuntimeError(f'AI service unavailable after 3 tries ({last_error}).')
 
 
-def translate_to_english(text: str):
+def translate_to_english(text: str, lang: str = DEFAULT_LANG):
     """Returns (english, literal_meaning, glossary_confidence).
     Uses the glossary first; if nothing matches, asks the LLM to translate."""
-    matches = fuzzy_match_glossary(text)
+    cfg = lang_cfg(lang)
+    matches = fuzzy_match_glossary(text, lang=lang)
     if matches:
         match = matches[0]
         return match['english'], match['meaning'], match['ratio']
-    prompt = f"""Translate this Yoruba speech (Ekiti dialect, transcribed by speech recognition, may contain errors) into plain English.
+    prompt = f"""Translate this {cfg['name']} speech ({cfg.get('dialect_note', 'local dialect')}, transcribed by speech recognition, may contain errors) into plain English.
 Reply with the English translation only, one short sentence. If it cannot be understood, reply exactly: UNCLEAR
 
-Yoruba: {text}"""
+{cfg['name']}: {text}"""
     translated = call_groq(prompt, max_tokens=400)
     if translated.strip().upper().startswith('UNCLEAR'):
         return 'Unclear - please ask the patient to repeat', '', 0.0
@@ -158,8 +175,10 @@ def load_prompt_examples() -> str:
     return '\n'.join(f'- "{e["patient_says"]}" -> {e["clinical_term"]}' for e in examples)
 
 
-def generate_clinical_note(english_symptom: str, literal_meaning: str) -> str:
-    context = f'Literal meaning from patient in Ekiti Yoruba dialect: "{literal_meaning}"' if literal_meaning else ''
+def generate_clinical_note(english_symptom: str, literal_meaning: str, lang: str = DEFAULT_LANG) -> str:
+    cfg = lang_cfg(lang)
+    spoken = f"{cfg.get('dialect_note', '')} {cfg['name']}".replace('dialect ', '').strip()
+    context = f'Literal meaning from patient in {spoken}: "{literal_meaning}"' if literal_meaning else ''
     examples = load_prompt_examples()
     examples_block = f"""
 Examples of how patients describe symptoms and the clinical term a nurse would record:
@@ -167,7 +186,7 @@ Examples of how patients describe symptoms and the clinical term a nurse would r
 """ if examples else ''
     prompt = f"""You are a clinical documentation assistant supporting nurses in a rural Nigerian healthcare facility.
 
-A patient has reported the following symptom (translated from Ekiti Yoruba):
+A patient has reported the following symptom (translated from {spoken}):
 "{english_symptom}"
 {context}
 {examples_block}
@@ -206,7 +225,7 @@ def reviewer_title() -> str:
 
 
 DEPARTMENTS = ['Not specified', 'General outpatient (GOPD)', 'Antenatal', 'Postnatal',
-               'Accident & Emergency', 'Medical/Surgical ward', 'Other']
+               'Accident & Emergency', 'Medical/Surgical ward', 'Other', TEST_DEPARTMENT]
 
 
 def extract_urgency(note: str):
@@ -214,35 +233,36 @@ def extract_urgency(note: str):
     return match.group(1).capitalize() if match else None
 
 
-def generate_or_ask_for_rating(audio_file, department, pending_note_id):
+def generate_or_ask_for_rating(audio_file, department, pending_note_id, language=DEFAULT_LANG):
     """Before making a new note, ask the nurse to rate the previous one."""
     if pending_note_id:
         keep = gr.update()
         return (keep, keep, keep, keep, keep, pending_note_id,
                 status_html('warn', '<b>Please rate the note above first</b> '
                             '(👍, 👎 or 🤷 Not sure), then tap Generate again.'), keep)
-    return process_audio(audio_file, department)
+    return process_audio(audio_file, department, language)
 
 
-def process_audio(audio_file, department='Not specified'):
+def process_audio(audio_file, department='Not specified', language=DEFAULT_LANG):
     """Returns the 5 output boxes, the note id (for feedback) and a cleared feedback message."""
     if audio_file is None:
         return '', '', '', '', '', '', '', ''
     transcript = english_symptom = literal_meaning = confidence_str = ''
     try:
-        transcript = transcribe_audio(audio_file)
+        transcript = transcribe_audio(audio_file, language)
         if not transcript:
             log_usage(department, 'no_speech')
             return ('No speech detected. Please record again, speaking clearly '
                     'for a few seconds.'), '', '', '', '', '', '', ''
-        english_symptom, literal_meaning, confidence = translate_to_english(transcript)
+        english_symptom, literal_meaning, confidence = translate_to_english(transcript, language)
         confidence_str = (f'{confidence:.0%} glossary match' if confidence > 0
                           else 'No glossary match - AI translation, needs nurse review')
         # Safety check that does not depend on the AI
         reasons = check_danger(glossary_term=english_symptom if confidence > 0 else '',
                                transcript=transcript,
+                               keywords_key=lang_cfg(language).get('danger_keywords', ''),
                                english_text=f'{english_symptom} {literal_meaning}')
-        clinical_note = generate_clinical_note(english_symptom, literal_meaning)
+        clinical_note = generate_clinical_note(english_symptom, literal_meaning, language)
         note_id = log_usage(department, 'note', glossary_match=confidence > 0,
                             confidence=confidence, symptom=english_symptom,
                             urgency=extract_urgency(clinical_note),
@@ -260,7 +280,8 @@ def process_audio(audio_file, department='Not specified'):
         traceback.print_exc()
         log_usage(department, 'error')
         # Keep whatever already worked so the nurse still sees it
-        reasons = check_danger(transcript=transcript, english_text=f'{english_symptom} {literal_meaning}')
+        reasons = check_danger(transcript=transcript, english_text=f'{english_symptom} {literal_meaning}',
+                               keywords_key=lang_cfg(language).get('danger_keywords', ''))
         return (transcript or f'Error: {e}', english_symptom, literal_meaning,
                 confidence_str, f'Could not finish: {e}\nPlease try again in a moment.', '', '',
                 danger_banner(reasons))
@@ -305,8 +326,8 @@ body, .gradio-container {
 .beagrace-header {
     background: linear-gradient(135deg, var(--green-deep) 0%, var(--green-mid) 100%);
     border-radius: var(--radius);
-    padding: 36px 40px;
-    margin-bottom: 28px;
+    padding: 20px 28px;
+    margin-bottom: 12px;
     position: relative;
     overflow: hidden;
 }
@@ -321,7 +342,7 @@ body, .gradio-container {
 .beagrace-header h1 {
     font-family: 'DM Serif Display', serif !important;
     color: var(--warm-white) !important;
-    font-size: 2.2rem !important;
+    font-size: 1.8rem !important;
     margin: 0 0 6px 0 !important;
     letter-spacing: -0.5px;
 }
@@ -358,8 +379,8 @@ body, .gradio-container {
     color: var(--green-deep);
     font-size: 1.1rem;
     font-weight: 400;
-    margin-bottom: 16px;
-    padding-bottom: 10px;
+    margin-bottom: 4px;
+    padding-bottom: 4px;
     border-bottom: 2px solid var(--green-pale);
 }
 
@@ -425,7 +446,7 @@ body, .gradio-container {
 .pipeline-steps {
     display: flex;
     gap: 8px;
-    margin: 20px 0;
+    margin: 4px 0 10px 0;
     flex-wrap: wrap;
 }
 .step {
@@ -443,6 +464,33 @@ body, .gradio-container {
     color: var(--text-light);
     font-size: 0.8rem;
 }
+
+/* Compact layout: smaller gaps between blocks, empty message slots take no space */
+.gradio-container {
+    --layout-gap: 10px !important;
+    --block-padding: 8px 12px !important;
+    --form-gap-width: 1px !important;
+}
+.slot { padding: 0 !important; margin: 0 !important; min-height: 0 !important;
+        border: none !important; background: transparent !important; box-shadow: none !important; }
+.slot .prose, .slot > div { min-height: 0 !important; }
+
+/* Impact page */
+.impact-wrap { padding: 4px 0; }
+.impact-head { margin-bottom: 12px; }
+.impact-title { font-family: 'DM Serif Display', serif; font-size: 1.5rem; color: var(--green-deep); }
+.impact-sub { font-size: 0.85rem; color: var(--text-light); margin-top: 2px; }
+.impact-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.impact-card {
+    background: var(--warm-white); border-radius: var(--radius); padding: 16px 18px;
+    box-shadow: var(--shadow); border-top: 4px solid var(--green-bright);
+}
+.impact-number { font-family: 'DM Serif Display', serif; font-size: 2.1rem; color: var(--green-mid); line-height: 1.1; }
+.impact-label { font-size: 0.88rem; font-weight: 600; color: var(--text-dark); margin-top: 4px; }
+.impact-note { font-size: 0.78rem; color: var(--text-light); margin-top: 2px; }
+.impact-depts { margin-top: 14px; background: var(--green-pale); border-radius: 10px; padding: 12px 16px;
+                font-size: 0.88rem; color: var(--text-dark); }
+.impact-depts ul { margin: 6px 0 0 18px; padding: 0; }
 
 /* Status message cards */
 .status-card {
@@ -525,116 +573,129 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
         <h1>🏥 BeaGrace Health</h1>
         <p>Ekiti Yoruba speech → structured clinical nurse handoff note · Supporting rural healthcare in Nigeria</p>
     </div>
-    <div class="pipeline-steps">
+    """)
+
+    with gr.Tabs():
+        with gr.Tab('🩺 Nurse tool'):
+            gr.HTML('''<div class="pipeline-steps">
         <div class="step">1️⃣ Record the patient speaking Yoruba</div>
         <div class="step-arrow">→</div>
         <div class="step">2️⃣ Tap Generate Clinical Note</div>
         <div class="step-arrow">→</div>
         <div class="step">3️⃣ Check the note and rate it</div>
-    </div>
-    """)
+    </div>''', elem_classes=['slot'])
+            with gr.Row(equal_height=False):
+                with gr.Column(scale=1):
+                    gr.HTML('<div class="panel-label">📂 Patient audio</div>', elem_classes=['slot'])
+                    audio_input = gr.Audio(
+                        label='Upload audio file (Ekiti Yoruba)',
+                        type='filepath',
+                    )
+                    language_input = gr.Dropdown(
+                        choices=[(cfg['label'], code) for code, cfg in LANGUAGES.items()],
+                        value=DEFAULT_LANG,
+                        label='Patient language',
+                        visible=len(LANGUAGES) > 1,
+                    )
+                    department_input = gr.Dropdown(
+                        choices=DEPARTMENTS,
+                        value='Not specified',
+                        label='Department (optional)',
+                    )
+                    submit_btn = gr.Button(
+                        '⚕️ Generate Clinical Note',
+                        elem_id='submit-btn',
+                        variant='primary',
+                    )
+                    gr.HTML("""
+                    <div style="margin-top:4px; padding:10px 14px; background:#d8f3dc; border-radius:10px;">
+                        <p style="margin:0; font-size:0.82rem; color:#2d6a4f; font-weight:500;">
+                            🎤 <strong>Record with the microphone</strong> or upload a file (MP3, WAV, M4A, OGG)<br>
+                            📍 <strong>Works with Yoruba speech.</strong> Most accurate for Ekiti dialect phrases.
+                            Other phrases are marked "Low confidence" for you to check.
+                        </p>
+                    </div>
+                    """)
 
-    with gr.Row(equal_height=False):
-        with gr.Column(scale=1):
-            gr.HTML('<div class="panel-label">📂 Patient Audio Upload</div>')
-            audio_input = gr.Audio(
-                label='Upload audio file (Ekiti Yoruba)',
-                type='filepath',
+                with gr.Column(scale=1):
+                    gr.HTML('<div class="panel-label">🔬 Result</div>', elem_classes=['slot'])
+                    transcript_out = gr.Textbox(label='What the patient said (Yoruba)', interactive=False)
+                    with gr.Row():
+                        english_out = gr.Textbox(label='English Symptom', interactive=False, scale=2)
+                        confidence_out = gr.Textbox(label='Confidence', interactive=False, scale=1)
+                    meaning_out = gr.Textbox(label='Literal Meaning (Ekiti dialect)', interactive=False)
+
+            gr.HTML('<div class="panel-label" style="margin-top:6px;">📋 Clinical Nurse Handoff Note</div>', elem_classes=['slot'])
+            danger_out = gr.HTML('', elem_classes=['slot'])
+            clinical_note_out = gr.Textbox(
+                label='Clinical note',
+                show_label=False,
+                interactive=False,
+                lines=5,
+                elem_id='clinical-note',
             )
-            department_input = gr.Dropdown(
-                choices=DEPARTMENTS,
-                value='Not specified',
-                label='Department (optional)',
+
+            note_id_state = gr.State('')
+            gr.HTML('<div class="panel-label" style="margin-top:6px;">✅ Was this note correct?</div>', elem_classes=['slot'])
+            feedback_comment = gr.Textbox(
+                label='Comment (optional): write it first, then tap a rating below. '
+                      'Please do not include patient names or details.',
+                lines=2,
             )
-            submit_btn = gr.Button(
-                '⚕️ Generate Clinical Note',
-                elem_id='submit-btn',
-                variant='primary',
-            )
+            with gr.Row():
+                correct_btn = gr.Button('👍 Note is correct')
+                wrong_btn = gr.Button('👎 Note needs changes')
+                unsure_btn = gr.Button('🤷 Not sure')
+            feedback_status = gr.HTML('', elem_classes=['slot'])
+
+            with gr.Accordion('🧠 Teach the app a phrase (if it was not recognised or was wrong)', open=False,
+                              elem_classes=['soft-section']):
+                gr.HTML("""
+                <div class="section-intro">
+                    <b>Help the app learn.</b> Tell us what the patient actually meant.
+                    A Yoruba speaker will check it before it is added.
+                    <div class="section-hint">Please do not include patient names or details.</div>
+                </div>""")
+                suggest_meaning = gr.Textbox(label='What the patient meant (English)', lines=2)
+                suggest_term = gr.Textbox(label='Clinical term (optional), e.g. Headache')
+                suggest_btn = gr.Button('📨 Send for review', elem_id='suggest-btn')
+                suggest_status = gr.HTML('', elem_classes=['slot'])
+
             gr.HTML("""
-            <div style="margin-top:16px; padding:14px; background:#d8f3dc; border-radius:10px;">
-                <p style="margin:0; font-size:0.82rem; color:#2d6a4f; font-weight:500;">
-                    🎤 <strong>Record with the microphone</strong> or upload a file (MP3, WAV, M4A, OGG)<br>
-                    📍 <strong>Works with Yoruba speech.</strong> Most accurate for Ekiti dialect phrases.
-                    Other phrases are marked "Low confidence" for you to check.
-                </p>
-            </div>
+            <p style="font-size:0.78rem; color:#6b9080; margin-top:6px;">
+                🔒 Usage is counted anonymously to improve the app. No audio or patient details are stored.
+                Only phrases you choose to send for review are saved, so they can be checked by a Yoruba speaker.
+            </p>
             """)
 
-        with gr.Column(scale=1):
-            gr.HTML('<div class="panel-label">🔬 Pipeline Output</div>')
-            transcript_out = gr.Textbox(label='What the patient said (Yoruba)', interactive=False)
-            with gr.Row():
-                english_out = gr.Textbox(label='English Symptom', interactive=False, scale=2)
-                confidence_out = gr.Textbox(label='Confidence', interactive=False, scale=1)
-            meaning_out = gr.Textbox(label='Literal Meaning (Ekiti dialect)', interactive=False)
-
-    gr.HTML('<div class="panel-label" style="margin-top:20px;">📋 Clinical Nurse Handoff Note</div>')
-    danger_out = gr.HTML('')
-    clinical_note_out = gr.Textbox(
-        label='Clinical note',
-        show_label=False,
-        interactive=False,
-        lines=7,
-        elem_id='clinical-note',
-    )
-
-    note_id_state = gr.State('')
-    gr.HTML('<div class="panel-label" style="margin-top:20px;">✅ Was this note correct?</div>')
-    with gr.Row():
-        correct_btn = gr.Button('👍 Note is correct')
-        wrong_btn = gr.Button('👎 Note needs changes')
-        unsure_btn = gr.Button('🤷 Not sure')
-    feedback_comment = gr.Textbox(
-        label='Comment (optional) - please do not include patient names or details',
-        lines=2,
-    )
-    feedback_status = gr.HTML('')
-
-    with gr.Accordion('🧠 Teach the app a phrase (if it was not recognised or was wrong)', open=False,
-                      elem_classes=['soft-section']):
-        gr.HTML("""
-        <div class="section-intro">
-            <b>Help the app learn.</b> Tell us what the patient actually meant.
-            A Yoruba speaker will check it before it is added.
-            <div class="section-hint">Please do not include patient names or details.</div>
-        </div>""")
-        suggest_meaning = gr.Textbox(label='What the patient meant (English)', lines=2)
-        suggest_term = gr.Textbox(label='Clinical term (optional), e.g. Headache')
-        suggest_btn = gr.Button('📨 Send for review', elem_id='suggest-btn')
-        suggest_status = gr.HTML('')
-
-    gr.HTML("""
-    <p style="font-size:0.78rem; color:#6b9080; margin-top:6px;">
-        🔒 Usage is counted anonymously to improve the app. No audio or patient details are stored.
-        Only phrases you choose to send for review are saved, so they can be checked by a Yoruba speaker.
-    </p>
-    """)
-
-    with gr.Accordion(REVIEWER_TITLE, open=False, elem_classes=['reviewer-section']) as reviewer_acc:
-        gr.HTML("""
-        <div class="section-intro reviewer-intro">
-            <b>For the Yoruba reviewer only.</b> Nurses send phrases the app did not understand.
-            Approve the correct ones and the app learns them for everyone.
-        </div>""")
-        gr.HTML('<div class="step-title">Step 1 · Sign in</div>')
-        with gr.Row(equal_height=True):
-            review_pw = gr.Textbox(label='Reviewer password', type='password', scale=3)
-            review_load_btn = gr.Button('🔓 Show waiting phrases', elem_id='review-load-btn', scale=2)
-        review_status = gr.HTML('')
-        gr.HTML('<div class="step-title">Step 2 · Check the phrase</div>')
-        review_pick = gr.Dropdown(label='Phrase to review', choices=[])
-        review_yoruba = gr.Textbox(label='Yoruba phrase (correct the spelling if needed)')
-        with gr.Row():
-            review_meaning = gr.Textbox(label='English meaning')
-            review_term = gr.Textbox(label='Clinical term')
-        with gr.Row():
-            review_dept = gr.Dropdown(choices=DEPARTMENTS, value='Not specified', label='Department')
-            review_name = gr.Textbox(label='Your name (reviewer)')
-        gr.HTML('<div class="step-title">Step 3 · Decide</div>')
-        with gr.Row():
-            approve_btn = gr.Button('✅ Approve and add to glossary', elem_id='approve-btn')
-            reject_btn = gr.Button('❌ Reject', elem_id='reject-btn')
+        with gr.Tab('📊 Impact'):
+            impact_out = gr.HTML(elem_classes=['slot'])
+            impact_refresh = gr.Button('🔄 Refresh totals', elem_id='review-load-btn')
+        with gr.Tab('🔑 Reviewer'):
+            with gr.Accordion(REVIEWER_TITLE, open=True, elem_classes=['reviewer-section']) as reviewer_acc:
+                gr.HTML("""
+                <div class="section-intro reviewer-intro">
+                    <b>For the Yoruba reviewer only.</b> Nurses send phrases the app did not understand.
+                    Approve the correct ones and the app learns them for everyone.
+                </div>""")
+                gr.HTML(elem_classes=['slot'], value='<div class="step-title">Step 1 · Sign in</div>')
+                with gr.Row(equal_height=True):
+                    review_pw = gr.Textbox(label='Reviewer password', type='password', scale=3)
+                    review_load_btn = gr.Button('🔓 Show waiting phrases', elem_id='review-load-btn', scale=2)
+                review_status = gr.HTML('', elem_classes=['slot'])
+                gr.HTML(elem_classes=['slot'], value='<div class="step-title">Step 2 · Check the phrase</div>')
+                review_pick = gr.Dropdown(label='Phrase to review', choices=[])
+                review_yoruba = gr.Textbox(label='Yoruba phrase (correct the spelling if needed)')
+                with gr.Row():
+                    review_meaning = gr.Textbox(label='English meaning')
+                    review_term = gr.Textbox(label='Clinical term')
+                with gr.Row():
+                    review_dept = gr.Dropdown(choices=DEPARTMENTS, value='Not specified', label='Department')
+                    review_name = gr.Textbox(label='Your name (reviewer)')
+                gr.HTML(elem_classes=['slot'], value='<div class="step-title">Step 3 · Decide</div>')
+                with gr.Row():
+                    approve_btn = gr.Button('✅ Approve and add to glossary', elem_id='approve-btn')
+                    reject_btn = gr.Button('❌ Reject', elem_id='reject-btn')
 
     gr.HTML("""
     <div class="footer-bar">
@@ -646,20 +707,20 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
 
     submit_btn.click(
         fn=generate_or_ask_for_rating,
-        inputs=[audio_input, department_input, note_id_state],
+        inputs=[audio_input, department_input, note_id_state, language_input],
         outputs=[transcript_out, english_out, meaning_out, confidence_out, clinical_note_out,
                  note_id_state, feedback_status, danger_out],
     )
 
-    def send_suggestion(transcript, meaning, term, dept, note_id):
-        message = submit_suggestion(transcript, meaning, term, dept, note_id)
+    def send_suggestion(transcript, meaning, term, dept, note_id, language=DEFAULT_LANG):
+        message = submit_suggestion(transcript, meaning, term, dept, note_id, language)
         if message.startswith('Thank you'):
             return status_html('success', message), '', '', gr.update(label=reviewer_title())
         return status_html('warn', message), meaning, term, gr.update()
 
     suggest_btn.click(
         fn=send_suggestion,
-        inputs=[transcript_out, suggest_meaning, suggest_term, department_input, note_id_state],
+        inputs=[transcript_out, suggest_meaning, suggest_term, department_input, note_id_state, language_input],
         outputs=[suggest_status, suggest_meaning, suggest_term, reviewer_acc],
     )
 
@@ -717,12 +778,22 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
     # Show the waiting count in the section title as soon as the page opens
     demo.load(lambda: gr.update(label=reviewer_title()), outputs=[reviewer_acc])
 
+    def show_impact():
+        try:
+            return impact_html(compute_stats(sum(len(load_glossary(code)) for code in LANGUAGES)))
+        except Exception as e:
+            print(f'[impact] {e}')
+            return status_html('info', 'Impact totals are not available right now. Please try again later.')
+
+    demo.load(show_impact, outputs=[impact_out])
+    impact_refresh.click(show_impact, outputs=[impact_out])
+
     def record_feedback(note_id, comment, rating):
         if not note_id:
             return status_html('info', 'No note to rate yet, or this note is already rated.'), comment, note_id
         log_feedback(note_id, rating, comment)
         # Clear the note id: this note is rated, so the next one can be generated
-        return status_html('success', '<b>Thank you!</b> Your feedback was saved.'), '', ''
+        return status_html('success', '<b>Thank you!</b> Your rating' + (' and comment were' if (comment or '').strip() else ' was') + ' saved.'), '', ''
 
     correct_btn.click(
         fn=lambda note_id, comment: record_feedback(note_id, comment, 'correct'),

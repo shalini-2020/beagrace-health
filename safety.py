@@ -29,7 +29,8 @@ def _load() -> dict:
         return {}
 
 
-def check_danger(glossary_term: str = '', transcript: str = '', english_text: str = '') -> list:
+def check_danger(glossary_term: str = '', transcript: str = '', english_text: str = '',
+                 keywords_key: str = 'yoruba_keywords') -> list:
     """Returns a list of reasons (empty list = no danger sign found)."""
     rules = _load()
     reasons = []
@@ -37,9 +38,9 @@ def check_danger(glossary_term: str = '', transcript: str = '', english_text: st
     if glossary_term and glossary_term.lower() in terms:
         reasons.append(glossary_term)
     yoruba = _plain(transcript)
-    for word in rules.get('yoruba_keywords', []):
+    for word in rules.get(keywords_key or '', []):
         if f' {_plain(word).strip()} ' in yoruba:
-            reasons.append(f'Yoruba: "{word}"')
+            reasons.append(f'"{word}"')
     english = _plain(english_text)
     for word in rules.get('english_keywords', []):
         if f' {_plain(word).strip()} ' in english:

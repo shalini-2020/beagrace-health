@@ -97,6 +97,8 @@ beagrace-health/
 ├── danger_signs.json   # Editable list of danger signs (nurse-reviewed)
 ├── learning.py         # Learning glossary: nurse suggestions + reviewer approval
 ├── usage_log.py        # Anonymous usage, feedback and review log
+├── impact.py           # Live Impact tab (totals from the pilot)
+├── languages.json      # Supported languages and their glossary files
 ├── glossary.json       # 60-entry Ekiti Yoruba medical vocabulary
 ├── requirements.txt    # Python dependencies
 └── README.md
@@ -160,6 +162,18 @@ The `glossary.json` file contains 60 entries: Ekiti Yoruba symptom expressions (
 ```
 
 Symptoms covered include headache, burning sensation, nausea, fever, body aches, chest pain, dizziness, shortness of breath, joint pain, muscle weakness, tingling sensation, sore throat, tinnitus, and more.
+
+---
+
+## 🌐 Adding a new language
+
+The method is not tied to one dialect. To add a language (for example Hausa or Igbo):
+
+1. Native speakers create a glossary file in the same format as `glossary.json`, with each local phrase mapped to its English meaning and clinical term.
+2. Add an entry to `languages.json` with the language name, its speech-recognition code, and the glossary file name.
+3. Optionally, add local danger-sign words to `danger_signs.json`.
+
+A **Patient language** selector appears automatically once more than one language is listed.
 
 ---
 

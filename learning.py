@@ -24,7 +24,7 @@ def _records(kind: str) -> list:
 
 
 def submit_suggestion(transcript: str, meaning: str, clinical_term: str,
-                      department: str, note_id: str = '') -> str:
+                      department: str, note_id: str = '', language: str = 'yo') -> str:
     transcript, meaning = (transcript or '').strip(), (meaning or '').strip()
     if not transcript or transcript.lower().startswith(('error', 'no speech')):
         return 'Generate a note first, so there is something to suggest.'
@@ -37,6 +37,7 @@ def submit_suggestion(transcript: str, meaning: str, clinical_term: str,
         'meaning': meaning[:300],
         'clinical_term': (clinical_term or '').strip()[:120],
         'department': department or 'Not specified',
+        'language': language or 'yo',
     }
     existing = _records('suggestions')   # load earlier ones first, so this one isn't counted twice
     append_record('suggestions', record)
@@ -64,6 +65,7 @@ def review(suggestion_id: str, decision: str, yoruba: str = '', meaning: str = '
         'literal_meaning': (meaning or s['meaning']).strip(),
         'english_medical_term': (clinical_term or s['clinical_term'] or meaning or s['meaning']).strip(),
         'department': department or s['department'],
+        'language': s.get('language', 'yo'),
     }
     if decision == 'approved' and not record['dialect_expression']:
         return 'The Yoruba phrase cannot be empty.'
@@ -73,8 +75,8 @@ def review(suggestion_id: str, decision: str, yoruba: str = '', meaning: str = '
     return None
 
 
-def learned_entries() -> list:
-    """Approved phrases, in the same shape as glossary.json entries."""
+def learned_entries(language: str = 'yo') -> list:
+    """Approved phrases for one language, in the same shape as glossary.json entries."""
     return [{
         'dialect_expression': r['dialect_expression'],
         'standard_yoruba': '',
@@ -82,4 +84,5 @@ def learned_entries() -> list:
         'literal_meaning': r['literal_meaning'],
         'department': r.get('department', 'Not specified'),
         'source': 'learned',
-    } for r in _records('reviews') if r.get('decision') == 'approved']
+    } for r in _records('reviews')
+        if r.get('decision') == 'approved' and r.get('language', 'yo') == language]

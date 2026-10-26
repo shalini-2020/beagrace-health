@@ -1,0 +1,10 @@
+{
+  "yo": {
+    "label": "Yoruba (Ekiti)",
+    "name": "Yoruba",
+    "dialect_note": "Ekiti dialect",
+    "speech_code": "yo",
+    "glossary_file": "glossary.json",
+    "danger_keywords": "yoruba_keywords"
+  }
+}
