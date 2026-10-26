@@ -93,6 +93,10 @@ Symptom · Patient Report · Urgency · Recommended Action
 beagrace-health/
 ├── app.py              # Gradio web app (main entry point)
 ├── cli_transcribe.py   # Command-line version: one audio file → clinical note
+├── safety.py           # Danger-sign check, independent of the AI
+├── danger_signs.json   # Editable list of danger signs (nurse-reviewed)
+├── learning.py         # Learning glossary: nurse suggestions + reviewer approval
+├── usage_log.py        # Anonymous usage, feedback and review log
 ├── glossary.json       # 60-entry Ekiti Yoruba medical vocabulary
 ├── requirements.txt    # Python dependencies
 └── README.md

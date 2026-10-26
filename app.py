@@ -16,6 +16,8 @@ import librosa
 import soundfile as sf
 
 from usage_log import log_usage, log_feedback
+from safety import check_danger, danger_banner
+from learning import submit_suggestion, pending_suggestions, review, learned_entries
 
 GLOSSARY_FILE = Path('glossary.json')
 ASSEMBLYAI_API_KEY = os.environ.get('ASSEMBLYAI_API_KEY')
@@ -23,10 +25,12 @@ GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
 
 
 def load_glossary() -> list:
+    entries = []
     if GLOSSARY_FILE.exists():
         with open(GLOSSARY_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    return []
+            entries = json.load(f)
+    # plus phrases approved by a reviewer through the learning loop
+    return entries + learned_entries()
 
 
 def clean_text(text: str) -> str:
@@ -197,39 +201,50 @@ def generate_or_ask_for_rating(audio_file, department, pending_note_id):
         keep = gr.update()
         return (keep, keep, keep, keep, keep, pending_note_id,
                 '⚠️ **Please rate the note above first** (👍, 👎 or 🤷 Not sure), '
-                'then tap Generate again.')
+                'then tap Generate again.', keep)
     return process_audio(audio_file, department)
 
 
 def process_audio(audio_file, department='Not specified'):
     """Returns the 5 output boxes, the note id (for feedback) and a cleared feedback message."""
     if audio_file is None:
-        return '', '', '', '', '', '', ''
+        return '', '', '', '', '', '', '', ''
     transcript = english_symptom = literal_meaning = confidence_str = ''
     try:
         transcript = transcribe_audio(audio_file)
         if not transcript:
             log_usage(department, 'no_speech')
             return ('No speech detected. Please record again, speaking clearly '
-                    'for a few seconds.'), '', '', '', '', '', ''
+                    'for a few seconds.'), '', '', '', '', '', '', ''
         english_symptom, literal_meaning, confidence = translate_to_english(transcript)
         confidence_str = (f'{confidence:.0%} glossary match' if confidence > 0
                           else 'No glossary match - AI translation, needs nurse review')
+        # Safety check that does not depend on the AI
+        reasons = check_danger(glossary_term=english_symptom if confidence > 0 else '',
+                               transcript=transcript,
+                               english_text=f'{english_symptom} {literal_meaning}')
         clinical_note = generate_clinical_note(english_symptom, literal_meaning)
         note_id = log_usage(department, 'note', glossary_match=confidence > 0,
                             confidence=confidence, symptom=english_symptom,
-                            urgency=extract_urgency(clinical_note))
+                            urgency=extract_urgency(clinical_note),
+                            danger_sign=bool(reasons))
         if confidence == 0:
             clinical_note = ('LOW CONFIDENCE - phrase not in glossary. '
                              'Confirm with the patient before acting.\n\n' + clinical_note)
-        return transcript, english_symptom, literal_meaning, confidence_str, clinical_note, note_id, ''
+        if reasons:
+            clinical_note = ('URGENT - possible danger sign detected by the safety check. '
+                             'Escalate now.\n\n' + clinical_note)
+        return (transcript, english_symptom, literal_meaning, confidence_str, clinical_note,
+                note_id, '', danger_banner(reasons))
     except Exception as e:
         import traceback
         traceback.print_exc()
         log_usage(department, 'error')
         # Keep whatever already worked so the nurse still sees it
+        reasons = check_danger(transcript=transcript, english_text=f'{english_symptom} {literal_meaning}')
         return (transcript or f'Error: {e}', english_symptom, literal_meaning,
-                confidence_str, f'Could not finish: {e}\nPlease try again in a moment.', '', '')
+                confidence_str, f'Could not finish: {e}\nPlease try again in a moment.', '', '',
+                danger_banner(reasons))
     finally:
         # Remove only the cleaned wav temp file — no text files are written
         if audio_file:
@@ -410,6 +425,11 @@ body, .gradio-container {
     font-size: 0.8rem;
 }
 
+/* Danger banner: always white text on red */
+.danger-banner, .danger-banner * {
+    color: #ffffff !important;
+}
+
 /* Footer */
 .footer-bar {
     background: var(--green-deep);
@@ -442,15 +462,11 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
         <p>Ekiti Yoruba speech → structured clinical nurse handoff note · Supporting rural healthcare in Nigeria</p>
     </div>
     <div class="pipeline-steps">
-        <div class="step">🎙️ Yoruba Audio</div>
+        <div class="step">1️⃣ Record the patient speaking Yoruba</div>
         <div class="step-arrow">→</div>
-        <div class="step">🤖 AssemblyAI ASR</div>
+        <div class="step">2️⃣ Tap Generate Clinical Note</div>
         <div class="step-arrow">→</div>
-        <div class="step">📖 Fuzzy Glossary</div>
-        <div class="step-arrow">→</div>
-        <div class="step">⚕️ Groq GPT-OSS</div>
-        <div class="step-arrow">→</div>
-        <div class="step">📋 Clinical Note</div>
+        <div class="step">3️⃣ Check the note and rate it</div>
     </div>
     """)
 
@@ -474,21 +490,23 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
             gr.HTML("""
             <div style="margin-top:16px; padding:14px; background:#d8f3dc; border-radius:10px;">
                 <p style="margin:0; font-size:0.82rem; color:#2d6a4f; font-weight:500;">
-                    💡 <strong>Supported formats:</strong> MP3, WAV, M4A, OGG<br>
-                    📍 Optimised for <strong>Ekiti Yoruba</strong> dialect medical vocabulary
+                    🎤 <strong>Record with the microphone</strong> or upload a file (MP3, WAV, M4A, OGG)<br>
+                    📍 <strong>Works with Yoruba speech.</strong> Most accurate for Ekiti dialect phrases.
+                    Other phrases are marked "Low confidence" for you to check.
                 </p>
             </div>
             """)
 
         with gr.Column(scale=1):
             gr.HTML('<div class="panel-label">🔬 Pipeline Output</div>')
-            transcript_out = gr.Textbox(label='ASR Transcript (Yoruba)', interactive=False)
+            transcript_out = gr.Textbox(label='What the patient said (Yoruba)', interactive=False)
             with gr.Row():
                 english_out = gr.Textbox(label='English Symptom', interactive=False, scale=2)
                 confidence_out = gr.Textbox(label='Confidence', interactive=False, scale=1)
             meaning_out = gr.Textbox(label='Literal Meaning (Ekiti dialect)', interactive=False)
 
     gr.HTML('<div class="panel-label" style="margin-top:20px;">📋 Clinical Nurse Handoff Note</div>')
+    danger_out = gr.HTML('')
     clinical_note_out = gr.Textbox(
         label='Clinical note',
         show_label=False,
@@ -508,11 +526,35 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
         lines=2,
     )
     feedback_status = gr.Markdown('')
+
+    with gr.Accordion('🧠 Teach the app a phrase (if it was not recognised or was wrong)', open=False):
+        gr.Markdown('Tell us what the patient actually meant. A Yoruba speaker will review it '
+                    'before it is added. Please do not include patient names or details.')
+        suggest_meaning = gr.Textbox(label='What the patient meant (English)', lines=2)
+        suggest_term = gr.Textbox(label='Clinical term (optional), e.g. Headache')
+        suggest_btn = gr.Button('Send for review')
+        suggest_status = gr.Markdown('')
+
     gr.HTML("""
     <p style="font-size:0.78rem; color:#6b9080; margin-top:6px;">
-        🔒 Usage is counted anonymously to improve the app. No audio, transcripts or patient details are stored.
+        🔒 Usage is counted anonymously to improve the app. No audio or patient details are stored.
+        Only phrases you choose to send for review are saved, so they can be checked by a Yoruba speaker.
     </p>
     """)
+
+    with gr.Accordion('🔑 Reviewer: approve new phrases (password required)', open=False):
+        review_pw = gr.Textbox(label='Reviewer password', type='password')
+        review_load_btn = gr.Button('Show phrases waiting for review')
+        review_pick = gr.Dropdown(label='Phrase to review', choices=[])
+        review_yoruba = gr.Textbox(label='Yoruba phrase (correct the spelling if needed)')
+        review_meaning = gr.Textbox(label='English meaning')
+        review_term = gr.Textbox(label='Clinical term')
+        review_dept = gr.Dropdown(choices=DEPARTMENTS, value='Not specified', label='Department')
+        review_name = gr.Textbox(label='Your name (reviewer)')
+        with gr.Row():
+            approve_btn = gr.Button('✅ Approve and add to glossary')
+            reject_btn = gr.Button('❌ Reject')
+        review_status = gr.Markdown('')
 
     gr.HTML("""
     <div class="footer-bar">
@@ -526,8 +568,62 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
         fn=generate_or_ask_for_rating,
         inputs=[audio_input, department_input, note_id_state],
         outputs=[transcript_out, english_out, meaning_out, confidence_out, clinical_note_out,
-                 note_id_state, feedback_status],
+                 note_id_state, feedback_status, danger_out],
     )
+
+    def send_suggestion(transcript, meaning, term, dept, note_id):
+        message = submit_suggestion(transcript, meaning, term, dept, note_id)
+        if message.startswith('Thank you'):
+            return message, '', ''
+        return message, meaning, term
+
+    suggest_btn.click(
+        fn=send_suggestion,
+        inputs=[transcript_out, suggest_meaning, suggest_term, department_input, note_id_state],
+        outputs=[suggest_status, suggest_meaning, suggest_term],
+    )
+
+    def _reviewer_ok(password):
+        expected = os.environ.get('REVIEW_PASSWORD')
+        return bool(expected) and password == expected
+
+    def load_pending(password):
+        if not os.environ.get('REVIEW_PASSWORD'):
+            return gr.update(choices=[], value=None), 'Reviewer is not set up (add a REVIEW_PASSWORD secret).'
+        if not _reviewer_ok(password):
+            return gr.update(choices=[], value=None), 'Wrong password.'
+        items = pending_suggestions()
+        choices = [(f"{s['yoruba'][:50]}  →  {s['meaning'][:40]}", s['suggestion_id']) for s in items]
+        return gr.update(choices=choices, value=None), f'{len(items)} phrase(s) waiting for review.'
+
+    def fill_review(suggestion_id):
+        for s in pending_suggestions():
+            if s['suggestion_id'] == suggestion_id:
+                dept = s['department'] if s['department'] in DEPARTMENTS else 'Not specified'
+                return s['yoruba'], s['meaning'], s['clinical_term'], dept
+        return '', '', '', 'Not specified'
+
+    def decide(password, suggestion_id, yoruba, meaning, term, dept, name, decision):
+        if not _reviewer_ok(password):
+            return 'Wrong password.', gr.update()
+        if not suggestion_id:
+            return 'Choose a phrase first.', gr.update()
+        error = review(suggestion_id, decision, yoruba, meaning, term, dept, name)
+        if error:
+            return error, gr.update()
+        items = pending_suggestions()
+        choices = [(f"{s['yoruba'][:50]}  →  {s['meaning'][:40]}", s['suggestion_id']) for s in items]
+        verb = 'Approved and added to the glossary' if decision == 'approved' else 'Rejected'
+        return f'{verb}. {len(items)} left to review.', gr.update(choices=choices, value=None)
+
+    review_load_btn.click(load_pending, inputs=[review_pw], outputs=[review_pick, review_status])
+    review_pick.change(fill_review, inputs=[review_pick],
+                       outputs=[review_yoruba, review_meaning, review_term, review_dept])
+    review_fields = [review_pw, review_pick, review_yoruba, review_meaning, review_term, review_dept, review_name]
+    approve_btn.click(lambda *a: decide(*a, 'approved'), inputs=review_fields,
+                      outputs=[review_status, review_pick])
+    reject_btn.click(lambda *a: decide(*a, 'rejected'), inputs=review_fields,
+                     outputs=[review_status, review_pick])
 
     def record_feedback(note_id, comment, rating):
         if not note_id:
