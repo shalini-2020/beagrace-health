@@ -186,6 +186,25 @@ Be concise. Use standard clinical language."""
     return call_groq(prompt, max_tokens=1000)
 
 
+def status_html(kind: str, text: str) -> str:
+    """A coloured message card. kind: success / info / warn / error."""
+    icons = {'success': '✅', 'info': 'ℹ️', 'warn': '⚠️', 'error': '⛔'}
+    return (f'<div class="status-card status-{kind}"><span>{icons.get(kind, "")}</span>'
+            f'<span>{text}</span></div>')
+
+
+REVIEWER_TITLE = '🔑 Reviewer: approve new phrases (password required)'
+
+
+def reviewer_title() -> str:
+    try:
+        count = len(pending_suggestions())
+    except Exception:
+        return REVIEWER_TITLE
+    waiting = f'{count} waiting' if count else 'nothing waiting'
+    return f'{REVIEWER_TITLE} · {waiting}'
+
+
 DEPARTMENTS = ['Not specified', 'General outpatient (GOPD)', 'Antenatal', 'Postnatal',
                'Accident & Emergency', 'Medical/Surgical ward', 'Other']
 
@@ -200,8 +219,8 @@ def generate_or_ask_for_rating(audio_file, department, pending_note_id):
     if pending_note_id:
         keep = gr.update()
         return (keep, keep, keep, keep, keep, pending_note_id,
-                '⚠️ **Please rate the note above first** (👍, 👎 or 🤷 Not sure), '
-                'then tap Generate again.', keep)
+                status_html('warn', '<b>Please rate the note above first</b> '
+                            '(👍, 👎 or 🤷 Not sure), then tap Generate again.'), keep)
     return process_audio(audio_file, department)
 
 
@@ -425,6 +444,51 @@ body, .gradio-container {
     font-size: 0.8rem;
 }
 
+/* Status message cards */
+.status-card {
+    display: flex; gap: 10px; align-items: flex-start;
+    border-radius: 10px; padding: 12px 16px; margin: 8px 0;
+    font-size: 0.9rem; line-height: 1.45;
+}
+.status-success { background: #d8f3dc; color: #1a3a2a !important; border-left: 5px solid #40916c; }
+.status-info    { background: #e7f0fa; color: #1d3557 !important; border-left: 5px solid #457b9d; }
+.status-warn    { background: #fff4d6; color: #5c4400 !important; border-left: 5px solid #e9c46a; }
+.status-error   { background: #fde4dc; color: #7a2009 !important; border-left: 5px solid #c1440e; }
+.status-card * { color: inherit !important; }
+
+/* Teach-the-app and reviewer sections */
+.soft-section, .reviewer-section {
+    border-radius: var(--radius) !important;
+    box-shadow: var(--shadow) !important;
+    border: 1px solid rgba(45,106,79,0.12) !important;
+    margin-top: 16px !important;
+}
+.reviewer-section { border-top: 4px solid var(--accent-gold) !important; }
+.section-intro {
+    background: var(--green-pale); color: var(--text-dark);
+    border-radius: 10px; padding: 12px 16px; font-size: 0.9rem; line-height: 1.5;
+}
+.reviewer-intro { background: #fff8e6; border-left: 5px solid var(--accent-gold); }
+.section-hint { font-size: 0.8rem; color: var(--text-light); margin-top: 4px; }
+.step-title {
+    font-family: 'DM Serif Display', serif; color: var(--green-deep);
+    font-size: 1rem; margin: 14px 0 4px 0;
+    padding-bottom: 4px; border-bottom: 2px solid var(--green-pale);
+}
+#suggest-btn, #review-load-btn {
+    background: var(--warm-white) !important; color: var(--green-mid) !important;
+    border: 2px solid var(--green-bright) !important; border-radius: 10px !important; font-weight: 600 !important;
+}
+#approve-btn {
+    background: linear-gradient(135deg, var(--green-mid), var(--green-bright)) !important;
+    color: #fff !important; border: none !important; border-radius: 10px !important; font-weight: 600 !important;
+    box-shadow: 0 4px 14px rgba(45,106,79,0.3) !important;
+}
+#reject-btn {
+    background: var(--warm-white) !important; color: var(--accent-red) !important;
+    border: 2px solid var(--accent-red) !important; border-radius: 10px !important; font-weight: 600 !important;
+}
+
 /* Danger banner: always white text on red */
 .danger-banner, .danger-banner * {
     color: #ffffff !important;
@@ -525,15 +589,20 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
         label='Comment (optional) - please do not include patient names or details',
         lines=2,
     )
-    feedback_status = gr.Markdown('')
+    feedback_status = gr.HTML('')
 
-    with gr.Accordion('🧠 Teach the app a phrase (if it was not recognised or was wrong)', open=False):
-        gr.Markdown('Tell us what the patient actually meant. A Yoruba speaker will review it '
-                    'before it is added. Please do not include patient names or details.')
+    with gr.Accordion('🧠 Teach the app a phrase (if it was not recognised or was wrong)', open=False,
+                      elem_classes=['soft-section']):
+        gr.HTML("""
+        <div class="section-intro">
+            <b>Help the app learn.</b> Tell us what the patient actually meant.
+            A Yoruba speaker will check it before it is added.
+            <div class="section-hint">Please do not include patient names or details.</div>
+        </div>""")
         suggest_meaning = gr.Textbox(label='What the patient meant (English)', lines=2)
         suggest_term = gr.Textbox(label='Clinical term (optional), e.g. Headache')
-        suggest_btn = gr.Button('Send for review')
-        suggest_status = gr.Markdown('')
+        suggest_btn = gr.Button('📨 Send for review', elem_id='suggest-btn')
+        suggest_status = gr.HTML('')
 
     gr.HTML("""
     <p style="font-size:0.78rem; color:#6b9080; margin-top:6px;">
@@ -542,19 +611,30 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
     </p>
     """)
 
-    with gr.Accordion('🔑 Reviewer: approve new phrases (password required)', open=False):
-        review_pw = gr.Textbox(label='Reviewer password', type='password')
-        review_load_btn = gr.Button('Show phrases waiting for review')
+    with gr.Accordion(REVIEWER_TITLE, open=False, elem_classes=['reviewer-section']) as reviewer_acc:
+        gr.HTML("""
+        <div class="section-intro reviewer-intro">
+            <b>For the Yoruba reviewer only.</b> Nurses send phrases the app did not understand.
+            Approve the correct ones and the app learns them for everyone.
+        </div>""")
+        gr.HTML('<div class="step-title">Step 1 · Sign in</div>')
+        with gr.Row(equal_height=True):
+            review_pw = gr.Textbox(label='Reviewer password', type='password', scale=3)
+            review_load_btn = gr.Button('🔓 Show waiting phrases', elem_id='review-load-btn', scale=2)
+        review_status = gr.HTML('')
+        gr.HTML('<div class="step-title">Step 2 · Check the phrase</div>')
         review_pick = gr.Dropdown(label='Phrase to review', choices=[])
         review_yoruba = gr.Textbox(label='Yoruba phrase (correct the spelling if needed)')
-        review_meaning = gr.Textbox(label='English meaning')
-        review_term = gr.Textbox(label='Clinical term')
-        review_dept = gr.Dropdown(choices=DEPARTMENTS, value='Not specified', label='Department')
-        review_name = gr.Textbox(label='Your name (reviewer)')
         with gr.Row():
-            approve_btn = gr.Button('✅ Approve and add to glossary')
-            reject_btn = gr.Button('❌ Reject')
-        review_status = gr.Markdown('')
+            review_meaning = gr.Textbox(label='English meaning')
+            review_term = gr.Textbox(label='Clinical term')
+        with gr.Row():
+            review_dept = gr.Dropdown(choices=DEPARTMENTS, value='Not specified', label='Department')
+            review_name = gr.Textbox(label='Your name (reviewer)')
+        gr.HTML('<div class="step-title">Step 3 · Decide</div>')
+        with gr.Row():
+            approve_btn = gr.Button('✅ Approve and add to glossary', elem_id='approve-btn')
+            reject_btn = gr.Button('❌ Reject', elem_id='reject-btn')
 
     gr.HTML("""
     <div class="footer-bar">
@@ -574,27 +654,34 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
     def send_suggestion(transcript, meaning, term, dept, note_id):
         message = submit_suggestion(transcript, meaning, term, dept, note_id)
         if message.startswith('Thank you'):
-            return message, '', ''
-        return message, meaning, term
+            return status_html('success', message), '', '', gr.update(label=reviewer_title())
+        return status_html('warn', message), meaning, term, gr.update()
 
     suggest_btn.click(
         fn=send_suggestion,
         inputs=[transcript_out, suggest_meaning, suggest_term, department_input, note_id_state],
-        outputs=[suggest_status, suggest_meaning, suggest_term],
+        outputs=[suggest_status, suggest_meaning, suggest_term, reviewer_acc],
     )
 
     def _reviewer_ok(password):
         expected = os.environ.get('REVIEW_PASSWORD')
         return bool(expected) and password == expected
 
+    def _pending_message(count):
+        if count == 0:
+            return status_html('info', '<b>All caught up.</b> No phrases are waiting for review.')
+        return status_html('success', f'<b>{count} phrase{"s" if count != 1 else ""} waiting.</b> '
+                                      'Choose one below in Step 2.')
+
     def load_pending(password):
         if not os.environ.get('REVIEW_PASSWORD'):
-            return gr.update(choices=[], value=None), 'Reviewer is not set up (add a REVIEW_PASSWORD secret).'
+            return gr.update(choices=[], value=None), status_html(
+                'error', 'Reviewer is not set up yet (add a REVIEW_PASSWORD secret).')
         if not _reviewer_ok(password):
-            return gr.update(choices=[], value=None), 'Wrong password.'
+            return gr.update(choices=[], value=None), status_html('error', '<b>Wrong password.</b> Please try again.')
         items = pending_suggestions()
         choices = [(f"{s['yoruba'][:50]}  →  {s['meaning'][:40]}", s['suggestion_id']) for s in items]
-        return gr.update(choices=choices, value=None), f'{len(items)} phrase(s) waiting for review.'
+        return gr.update(choices=choices, value=None), _pending_message(len(items))
 
     def fill_review(suggestion_id):
         for s in pending_suggestions():
@@ -605,32 +692,37 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
 
     def decide(password, suggestion_id, yoruba, meaning, term, dept, name, decision):
         if not _reviewer_ok(password):
-            return 'Wrong password.', gr.update()
+            return status_html('error', '<b>Wrong password.</b>'), gr.update(), gr.update()
         if not suggestion_id:
-            return 'Choose a phrase first.', gr.update()
+            return status_html('warn', 'Choose a phrase in Step 2 first.'), gr.update(), gr.update()
         error = review(suggestion_id, decision, yoruba, meaning, term, dept, name)
         if error:
-            return error, gr.update()
+            return status_html('warn', error), gr.update(), gr.update()
         items = pending_suggestions()
         choices = [(f"{s['yoruba'][:50]}  →  {s['meaning'][:40]}", s['suggestion_id']) for s in items]
-        verb = 'Approved and added to the glossary' if decision == 'approved' else 'Rejected'
-        return f'{verb}. {len(items)} left to review.', gr.update(choices=choices, value=None)
+        done = ('<b>Approved.</b> The app now understands this phrase.' if decision == 'approved'
+                else '<b>Rejected.</b> It will not be added.')
+        left = f' {len(items)} left to review.' if items else ' All caught up.'
+        return (status_html('success' if decision == 'approved' else 'info', done + left),
+                gr.update(choices=choices, value=None), gr.update(label=reviewer_title()))
 
     review_load_btn.click(load_pending, inputs=[review_pw], outputs=[review_pick, review_status])
     review_pick.change(fill_review, inputs=[review_pick],
                        outputs=[review_yoruba, review_meaning, review_term, review_dept])
     review_fields = [review_pw, review_pick, review_yoruba, review_meaning, review_term, review_dept, review_name]
     approve_btn.click(lambda *a: decide(*a, 'approved'), inputs=review_fields,
-                      outputs=[review_status, review_pick])
+                      outputs=[review_status, review_pick, reviewer_acc])
     reject_btn.click(lambda *a: decide(*a, 'rejected'), inputs=review_fields,
-                     outputs=[review_status, review_pick])
+                     outputs=[review_status, review_pick, reviewer_acc])
+    # Show the waiting count in the section title as soon as the page opens
+    demo.load(lambda: gr.update(label=reviewer_title()), outputs=[reviewer_acc])
 
     def record_feedback(note_id, comment, rating):
         if not note_id:
-            return 'No note to rate yet, or this note is already rated.', comment, note_id
+            return status_html('info', 'No note to rate yet, or this note is already rated.'), comment, note_id
         log_feedback(note_id, rating, comment)
         # Clear the note id: this note is rated, so the next one can be generated
-        return 'Thank you, your feedback was saved.', '', ''
+        return status_html('success', '<b>Thank you!</b> Your feedback was saved.'), '', ''
 
     correct_btn.click(
         fn=lambda note_id, comment: record_feedback(note_id, comment, 'correct'),
