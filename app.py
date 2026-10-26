@@ -191,6 +191,16 @@ def extract_urgency(note: str):
     return match.group(1).capitalize() if match else None
 
 
+def generate_or_ask_for_rating(audio_file, department, pending_note_id):
+    """Before making a new note, ask the nurse to rate the previous one."""
+    if pending_note_id:
+        keep = gr.update()
+        return (keep, keep, keep, keep, keep, pending_note_id,
+                '⚠️ **Please rate the note above first** (👍, 👎 or 🤷 Not sure), '
+                'then tap Generate again.')
+    return process_audio(audio_file, department)
+
+
 def process_audio(audio_file, department='Not specified'):
     """Returns the 5 output boxes, the note id (for feedback) and a cleared feedback message."""
     if audio_file is None:
@@ -492,6 +502,7 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
     with gr.Row():
         correct_btn = gr.Button('👍 Note is correct')
         wrong_btn = gr.Button('👎 Note needs changes')
+        unsure_btn = gr.Button('🤷 Not sure')
     feedback_comment = gr.Textbox(
         label='Comment (optional) - please do not include patient names or details',
         lines=2,
@@ -512,27 +523,33 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
     """)
 
     submit_btn.click(
-        fn=process_audio,
-        inputs=[audio_input, department_input],
+        fn=generate_or_ask_for_rating,
+        inputs=[audio_input, department_input, note_id_state],
         outputs=[transcript_out, english_out, meaning_out, confidence_out, clinical_note_out,
                  note_id_state, feedback_status],
     )
 
     def record_feedback(note_id, comment, rating):
         if not note_id:
-            return 'Please generate a note first.', comment
+            return 'No note to rate yet, or this note is already rated.', comment, note_id
         log_feedback(note_id, rating, comment)
-        return 'Thank you, your feedback was saved.', ''
+        # Clear the note id: this note is rated, so the next one can be generated
+        return 'Thank you, your feedback was saved.', '', ''
 
     correct_btn.click(
         fn=lambda note_id, comment: record_feedback(note_id, comment, 'correct'),
         inputs=[note_id_state, feedback_comment],
-        outputs=[feedback_status, feedback_comment],
+        outputs=[feedback_status, feedback_comment, note_id_state],
     )
     wrong_btn.click(
         fn=lambda note_id, comment: record_feedback(note_id, comment, 'needs_changes'),
         inputs=[note_id_state, feedback_comment],
-        outputs=[feedback_status, feedback_comment],
+        outputs=[feedback_status, feedback_comment, note_id_state],
+    )
+    unsure_btn.click(
+        fn=lambda note_id, comment: record_feedback(note_id, comment, 'not_sure'),
+        inputs=[note_id_state, feedback_comment],
+        outputs=[feedback_status, feedback_comment, note_id_state],
     )
 
 if __name__ == '__main__':

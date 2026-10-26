@@ -87,6 +87,6 @@ def log_feedback(note_id: str, rating: str, comment: str = '') -> None:
     _append(FEEDBACK_FILE, {
         'note_id': note_id,
         'time_utc': _now(),
-        'rating': rating,                        # correct / needs_changes
+        'rating': rating,                        # correct / needs_changes / not_sure
         'comment': (comment or '').strip()[:300],
     })
