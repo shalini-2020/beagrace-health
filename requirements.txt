@@ -1,10 +1,9 @@
 gradio
 assemblyai
-fuzzywuzzy
-python-Levenshtein
 librosa
 soundfile
 numpy
 requests
 python-dotenv
 huggingface_hub
+clinguard>=0.1.1

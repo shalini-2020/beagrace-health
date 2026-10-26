@@ -1,24 +1,17 @@
 """
 Danger-sign check for BeaGrace Health.
 
-Runs WITHOUT the AI: it looks at (1) the glossary term that matched, (2) the
+Runs WITHOUT the AI (uses the ClinGuard package): it looks at (1) the glossary term that matched, (2) the
 patient's Yoruba words, and (3) the English meaning, against the editable list
 in danger_signs.json. If anything matches, the app shows a red URGENT banner,
 even if the AI-written note says otherwise.
 """
 import json
-import re
-import unicodedata
 from pathlib import Path
 
+from clinguard import DangerRules, Entry
+
 DANGER_FILE = Path('danger_signs.json')
-
-
-def _plain(text: str) -> str:
-    """Lower-case, no tone marks, no punctuation (same idea as the glossary matcher)."""
-    text = unicodedata.normalize('NFKD', text or '')
-    text = ''.join(ch for ch in text if not unicodedata.combining(ch))
-    return ' ' + re.sub(r'\s+', ' ', re.sub(r"[^\w\s']", ' ', text)).lower().strip() + ' '
 
 
 def _load() -> dict:
@@ -31,22 +24,16 @@ def _load() -> dict:
 
 def check_danger(glossary_term: str = '', transcript: str = '', english_text: str = '',
                  keywords_key: str = 'yoruba_keywords') -> list:
-    """Returns a list of reasons (empty list = no danger sign found)."""
+    """Returns a list of reasons (empty list = no danger sign found).
+    The rule check itself is ClinGuard's DangerRules (pip install clinguard)."""
     rules = _load()
-    reasons = []
-    terms = {t.lower() for t in rules.get('glossary_terms', [])}
-    if glossary_term and glossary_term.lower() in terms:
-        reasons.append(glossary_term)
-    yoruba = _plain(transcript)
-    for word in rules.get(keywords_key or '', []):
-        if f' {_plain(word).strip()} ' in yoruba:
-            reasons.append(f'"{word}"')
-    english = _plain(english_text)
-    for word in rules.get('english_keywords', []):
-        if f' {_plain(word).strip()} ' in english:
-            reasons.append(f'"{word}"')
-    # keep order, drop duplicates
-    return list(dict.fromkeys(reasons))
+    checker = DangerRules(
+        clinical_terms=rules.get('glossary_terms', []),
+        english_keywords=rules.get('english_keywords', []),
+        local_keywords={'local': rules.get(keywords_key or '', [])},
+    )
+    entry = Entry(phrase='', meaning='', clinical_term=glossary_term) if glossary_term else None
+    return checker.check(said=transcript, meaning=english_text, entry=entry, language='local')
 
 
 def danger_banner(reasons: list) -> str:

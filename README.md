@@ -48,7 +48,7 @@ Audio Preprocessing (librosa)
         ↓
 AssemblyAI Transcription (Yoruba ASR)
         ↓
-Fuzzy Glossary Matching (fuzzywuzzy)
+Glossary Matching and Danger-Sign Checks (ClinGuard)
 60-entry Ekiti Yoruba medical vocabulary · 75% confidence threshold
         ↓
 Groq GPT-OSS-120B Clinical Note Generation
@@ -80,7 +80,7 @@ Symptom · Patient Report · Urgency · Recommended Action
 |---|---|
 | Audio preprocessing | librosa + soundfile |
 | Speech to text | AssemblyAI (Yoruba) |
-| Dialect matching | fuzzywuzzy |
+| Dialect matching and safety checks | [ClinGuard](https://pypi.org/project/clinguard/) (`pip install clinguard`) |
 | Clinical structuring | Groq GPT-OSS-120B |
 | Web interface | Gradio |
 | Hosting | Hugging Face Spaces |

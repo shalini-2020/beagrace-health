@@ -10,7 +10,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
 
-from fuzzywuzzy import fuzz
+from clinguard import Lexicon, normalize
 import assemblyai as aai
 import librosa
 import soundfile as sf
@@ -50,42 +50,20 @@ def load_glossary(lang: str = DEFAULT_LANG) -> list:
 
 
 def clean_text(text: str) -> str:
-    # Remove Yoruba tone marks and underdots (e.g. "Orí mi fọ́ mi" -> "ori mi fo mi")
-    # so speech-recognition output matches the plain-letter glossary entries.
-    text = unicodedata.normalize('NFKD', text)
-    text = ''.join(ch for ch in text if not unicodedata.combining(ch))
-    return re.sub(r'\s+', ' ', re.sub(r'[^\w\s]', ' ', text)).lower().strip()
+    """Lower-case, no tone marks or punctuation (from the ClinGuard package)."""
+    return normalize(text)
 
 
 def fuzzy_match_glossary(text: str, threshold: int = 75, lang: str = DEFAULT_LANG) -> list:
-    glossary = load_glossary(lang)
-    matches = []
-    text_clean = clean_text(text)
-    for entry in glossary:
-        dialect = entry.get('dialect_expression', '')
-        english = entry.get('english_medical_term', '')
-        if not dialect:
-            continue
-        dialect_clean = clean_text(dialect)
-        if len(dialect_clean) <= len(text_clean):
-            # Glossary phrase is shorter: look for it anywhere inside what was said
-            best_score = max(fuzz.token_set_ratio(text_clean, dialect_clean),
-                             fuzz.partial_ratio(text_clean, dialect_clean))
-        else:
-            # Patient said less than the glossary phrase: compare the whole thing,
-            # so a few words can't count as a full match for a long sentence
-            best_score = max(fuzz.ratio(text_clean, dialect_clean),
-                             fuzz.token_sort_ratio(text_clean, dialect_clean))
-        if best_score >= threshold:
-            matches.append({
-                'ratio': best_score / 100.0,
-                'dialect': dialect,
-                'english': english,
-                'meaning': entry.get('literal_meaning', ''),
-            })
-    # On equal scores prefer the longer, more specific phrase, so a short entry
-    # like "O dun mi" can't beat a full sentence that happens to contain it.
-    return sorted(matches, key=lambda x: (x['ratio'], len(clean_text(x['dialect']))), reverse=True)
+    """Glossary matching powered by ClinGuard (pip install clinguard): tone-mark
+    normalisation, tolerant length-aware fuzzy matching, specific phrases first."""
+    lexicon = Lexicon.from_records(load_glossary(lang), language=lang, threshold=threshold / 100.0)
+    return [{
+        'ratio': m.score,
+        'dialect': m.entry.phrase,
+        'english': m.entry.clinical_term,
+        'meaning': m.entry.meaning,
+    } for m in lexicon.matches(text)]
 
 
 def preprocess_audio(audio_path: str) -> str:
