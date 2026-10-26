@@ -516,9 +516,9 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
 
     gr.HTML("""
     <div class="footer-bar">
-        <p>Mentor: <span class="highlight">Shalini Sivasamy</span> · New York Life · Virginia, USA</p>
-        <p>Student: <span class="highlight">Christabel Ezem</span> · BeaGrace Foundation, Nigeria</p>
-        <p>Programme: <span class="highlight">AIVA / Technovation 2026</span></p>
+        <p>Developed by: <span class="highlight">Shalini Sivasamy</span> · Senior AI/ML Engineer · Virginia, USA</p>
+        <p>Developed for: <span class="highlight">Christabel Ezem</span> · BeaGrace Foundation, Nigeria</p>
+        <p>Programme: <span class="highlight">AI Ventures Accelerator · Technovation &amp; UNICEF Generation Unlimited 2026</span></p>
     </div>
     """)
 
