@@ -190,6 +190,15 @@ def status_html(kind: str, text: str) -> str:
             f'<span>{text}</span></div>')
 
 
+GENERATE_LABEL = '⚕️ Generate Clinical Note'
+RATE_FIRST_LABEL = '⭐ Rate the note below to continue'
+# After Generate is tapped, bring the note and the rating buttons into view
+SCROLL_TO_NOTE_JS = """() => {
+    const el = document.getElementById('note-anchor');
+    if (el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); }
+}"""
+
+
 REVIEWER_TITLE = '🔑 Reviewer: approve new phrases (password required)'
 
 
@@ -215,10 +224,13 @@ def generate_or_ask_for_rating(audio_file, department, pending_note_id, language
     """Before making a new note, ask the nurse to rate the previous one."""
     if pending_note_id:
         keep = gr.update()
-        return (keep, keep, keep, keep, keep, pending_note_id,
-                status_html('warn', '<b>Please rate the note above first</b> '
-                            '(👍, 👎 or 🤷 Not sure), then tap Generate again.'), keep)
-    return process_audio(audio_file, department, language)
+        warning = status_html('warn', '<b>Please rate the previous note first.</b> Scroll down and tap '
+                                      '👍, 👎 or 🤷 Not sure, then tap Generate again.')
+        return (keep, keep, keep, keep, keep, pending_note_id, warning, keep, warning,
+                gr.update(value=RATE_FIRST_LABEL))
+    result = process_audio(audio_file, department, language)
+    note_made = bool(result[5])   # a note id means a note was generated and now needs rating
+    return (*result, '', gr.update(value=RATE_FIRST_LABEL if note_made else GENERATE_LABEL))
 
 
 def process_audio(audio_file, department='Not specified', language=DEFAULT_LANG):
@@ -233,8 +245,12 @@ def process_audio(audio_file, department='Not specified', language=DEFAULT_LANG)
             return ('No speech detected. Please record again, speaking clearly '
                     'for a few seconds.'), '', '', '', '', '', '', ''
         english_symptom, literal_meaning, confidence = translate_to_english(transcript, language)
-        confidence_str = (f'{confidence:.0%} glossary match' if confidence > 0
-                          else 'No glossary match - AI translation, needs nurse review')
+        if confidence >= 0.9:
+            confidence_str = f'{confidence:.0%} glossary match'
+        elif confidence > 0:
+            confidence_str = f'{confidence:.0%} partial match - please confirm with the patient'
+        else:
+            confidence_str = 'No glossary match - AI translation, needs nurse review'
         # Safety check that does not depend on the AI
         reasons = check_danger(glossary_term=english_symptom if confidence > 0 else '',
                                transcript=transcript,
@@ -581,10 +597,11 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
                         label='Department (optional)',
                     )
                     submit_btn = gr.Button(
-                        '⚕️ Generate Clinical Note',
+                        GENERATE_LABEL,
                         elem_id='submit-btn',
                         variant='primary',
                     )
+                    generate_status = gr.HTML('', elem_classes=['slot'])
                     gr.HTML("""
                     <div style="margin-top:4px; padding:10px 14px; background:#d8f3dc; border-radius:10px;">
                         <p style="margin:0; font-size:0.82rem; color:#2d6a4f; font-weight:500;">
@@ -603,7 +620,8 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
                         confidence_out = gr.Textbox(label='Confidence', interactive=False, scale=1)
                     meaning_out = gr.Textbox(label='Literal Meaning (Ekiti dialect)', interactive=False)
 
-            gr.HTML('<div class="panel-label" style="margin-top:6px;">📋 Clinical Nurse Handoff Note</div>', elem_classes=['slot'])
+            gr.HTML('<div class="panel-label" style="margin-top:6px;">📋 Clinical Nurse Handoff Note</div>',
+                    elem_classes=['slot'], elem_id='note-anchor')
             danger_out = gr.HTML('', elem_classes=['slot'])
             clinical_note_out = gr.Textbox(
                 label='Clinical note',
@@ -614,7 +632,8 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
             )
 
             note_id_state = gr.State('')
-            gr.HTML('<div class="panel-label" style="margin-top:6px;">✅ Was this note correct?</div>', elem_classes=['slot'])
+            gr.HTML('<div class="panel-label" style="margin-top:6px;">✅ Was this note correct?</div>',
+                    elem_classes=['slot'], elem_id='rating-anchor')
             feedback_comment = gr.Textbox(
                 label='Comment (optional): write it first, then tap a rating below. '
                       'Please do not include patient names or details.',
@@ -687,8 +706,8 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
         fn=generate_or_ask_for_rating,
         inputs=[audio_input, department_input, note_id_state, language_input],
         outputs=[transcript_out, english_out, meaning_out, confidence_out, clinical_note_out,
-                 note_id_state, feedback_status, danger_out],
-    )
+                 note_id_state, feedback_status, danger_out, generate_status, submit_btn],
+    ).then(fn=None, js=SCROLL_TO_NOTE_JS)
 
     def send_suggestion(transcript, meaning, term, dept, note_id, language=DEFAULT_LANG):
         message = submit_suggestion(transcript, meaning, term, dept, note_id, language)
@@ -768,25 +787,26 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
 
     def record_feedback(note_id, comment, rating):
         if not note_id:
-            return status_html('info', 'No note to rate yet, or this note is already rated.'), comment, note_id
+            return (status_html('info', 'No note to rate yet, or this note is already rated.'),
+                    comment, note_id, '', gr.update())
         log_feedback(note_id, rating, comment)
         # Clear the note id: this note is rated, so the next one can be generated
-        return status_html('success', '<b>Thank you!</b> Your rating' + (' and comment were' if (comment or '').strip() else ' was') + ' saved.'), '', ''
+        return status_html('success', '<b>Thank you!</b> Your rating' + (' and comment were' if (comment or '').strip() else ' was') + ' saved.'), '', '', '', gr.update(value=GENERATE_LABEL)
 
     correct_btn.click(
         fn=lambda note_id, comment: record_feedback(note_id, comment, 'correct'),
         inputs=[note_id_state, feedback_comment],
-        outputs=[feedback_status, feedback_comment, note_id_state],
+        outputs=[feedback_status, feedback_comment, note_id_state, generate_status, submit_btn],
     )
     wrong_btn.click(
         fn=lambda note_id, comment: record_feedback(note_id, comment, 'needs_changes'),
         inputs=[note_id_state, feedback_comment],
-        outputs=[feedback_status, feedback_comment, note_id_state],
+        outputs=[feedback_status, feedback_comment, note_id_state, generate_status, submit_btn],
     )
     unsure_btn.click(
         fn=lambda note_id, comment: record_feedback(note_id, comment, 'not_sure'),
         inputs=[note_id_state, feedback_comment],
-        outputs=[feedback_status, feedback_comment, note_id_state],
+        outputs=[feedback_status, feedback_comment, note_id_state, generate_status, submit_btn],
     )
 
 if __name__ == '__main__':
