@@ -1,0 +1,2 @@
+case_id,language,input_text,case_type,source,reference_meaning,reference_term,reference_danger,labelled_by,notes
+EXAMPLE-1,yo,<Ekiti Yoruba phrase as transcribed>,common | variant | danger | negative | ambiguous,synthetic | consented-deidentified,<plain English meaning written by reviewer>,<clinical term>,yes | no,<reviewer code>,Rows starting EXAMPLE are ignored. Labels must be written without seeing any system output.

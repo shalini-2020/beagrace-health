@@ -7,20 +7,27 @@ import unicodedata
 import requests
 import numpy as np
 from pathlib import Path
+from typing import Optional
 from dotenv import load_dotenv
 load_dotenv()
 
+import functools
+import hashlib
+import clinguard
 from clinguard import Lexicon, normalize
 import assemblyai as aai
 import librosa
 import soundfile as sf
 
-from usage_log import log_usage, log_feedback
-from safety import check_danger, danger_banner
+from usage_log import log_usage, log_feedback, log_content, new_interaction_id
+from safety import check_danger, danger_banner, danger_rule_ids, rules_version
 from learning import submit_suggestion, pending_suggestions, review, learned_entries
 from impact import compute_stats, impact_html, TEST_DEPARTMENT
 
 GLOSSARY_FILE = Path('glossary.json')
+
+# Bump APP_VERSION with each release so every log record shows which version made it.
+APP_VERSION = os.environ.get('APP_VERSION', '2026.11.02')
 
 # Languages the app supports. Add a language by adding an entry to languages.json
 # plus its glossary file (see README: "Adding a new language").
@@ -63,7 +70,27 @@ def fuzzy_match_glossary(text: str, threshold: int = 75, lang: str = DEFAULT_LAN
         'dialect': m.entry.phrase,
         'english': m.entry.clinical_term,
         'meaning': m.entry.meaning,
+        'match_id': glossary_entry_id(m.entry.phrase),
     } for m in lexicon.matches(text)]
+
+
+def glossary_entry_id(phrase: str) -> str:
+    """Stable id for a glossary entry (from the curated glossary, never patient
+    words): 'g-' + a short hash of the normalised phrase."""
+    return 'g-' + hashlib.sha1(normalize(phrase).encode('utf-8')).hexdigest()[:10]
+
+
+def glossary_version(lang: str = DEFAULT_LANG) -> str:
+    """Short fingerprint of the glossary in use (base file + approved phrases)."""
+    data = json.dumps(load_glossary(lang), sort_keys=True, ensure_ascii=False)
+    return hashlib.sha1(data.encode('utf-8')).hexdigest()[:8]
+
+
+def versions(lang: str = DEFAULT_LANG) -> dict:
+    return {'app_version': APP_VERSION,
+            'clinguard_version': getattr(clinguard, '__version__', 'unknown'),
+            'glossary_version': glossary_version(lang),
+            'rules_version': rules_version()}
 
 
 def preprocess_audio(audio_path: str) -> str:
@@ -78,6 +105,11 @@ def preprocess_audio(audio_path: str) -> str:
 
 
 def transcribe_audio(audio_path: str, lang: str = DEFAULT_LANG) -> str:
+    return transcribe_audio_detailed(audio_path, lang)[0]
+
+
+def transcribe_audio_detailed(audio_path: str, lang: str = DEFAULT_LANG):
+    """Returns (text, speech_model), so each log record shows which speech model was used."""
     cleaned_path = preprocess_audio(audio_path)
     aai.settings.api_key = ASSEMBLYAI_API_KEY
     config = aai.TranscriptionConfig(language_code=lang_cfg(lang).get('speech_code', 'yo'))
@@ -85,7 +117,12 @@ def transcribe_audio(audio_path: str, lang: str = DEFAULT_LANG) -> str:
     transcript = transcriber.transcribe(cleaned_path)
     if transcript.status == aai.TranscriptStatus.error:
         raise RuntimeError(f'Transcription failed: {transcript.error}')
-    return transcript.text.strip()
+    model = None
+    try:
+        model = (getattr(transcript, 'json_response', None) or {}).get('speech_model')
+    except Exception:
+        pass
+    return (transcript.text or '').strip(), f"assemblyai:{model or 'default'}"
 
 
 def call_groq(prompt: str, max_tokens: int = 1000) -> str:
@@ -121,22 +158,54 @@ def call_groq(prompt: str, max_tokens: int = 1000) -> str:
     raise RuntimeError(f'AI service unavailable after 3 tries ({last_error}).')
 
 
-def translate_to_english(text: str, lang: str = DEFAULT_LANG):
-    """Returns (english, literal_meaning, glossary_confidence).
-    Uses the glossary first; if nothing matches, asks the LLM to translate."""
+def translate_detailed(text: str, lang: str = DEFAULT_LANG) -> dict:
+    """Glossary first; if nothing matches, ask the LLM to translate.
+    Returns english, meaning, confidence, match_id and fallback (the AI translation, if used)."""
     cfg = lang_cfg(lang)
     matches = fuzzy_match_glossary(text, lang=lang)
     if matches:
-        match = matches[0]
-        return match['english'], match['meaning'], match['ratio']
+        m = matches[0]
+        return {'english': m['english'], 'meaning': m['meaning'], 'confidence': m['ratio'],
+                'match_id': m['match_id'], 'fallback': ''}
     prompt = f"""Translate this {cfg['name']} speech ({cfg.get('dialect_note', 'local dialect')}, transcribed by speech recognition, may contain errors) into plain English.
 Reply with the English translation only, one short sentence. If it cannot be understood, reply exactly: UNCLEAR
 
 {cfg['name']}: {text}"""
     translated = call_groq(prompt, max_tokens=400)
     if translated.strip().upper().startswith('UNCLEAR'):
-        return 'Unclear - please ask the patient to repeat', '', 0.0
-    return translated, '', 0.0
+        return {'english': 'Unclear - please ask the patient to repeat', 'meaning': '',
+                'confidence': 0.0, 'match_id': None, 'fallback': '', 'unclear': True}
+    return {'english': translated, 'meaning': '', 'confidence': 0.0, 'match_id': None,
+            'fallback': translated}
+
+
+def translate_to_english(text: str, lang: str = DEFAULT_LANG):
+    """Returns (english, literal_meaning, glossary_confidence). Kept for older callers."""
+    r = translate_detailed(text, lang)
+    return r['english'], r['meaning'], r['confidence']
+
+
+NURSE_CODE_RE = re.compile(r'^(?=.*\d)[A-Za-z0-9-]{1,10}$')   # must contain a digit, so names are rejected
+
+
+def clean_nurse_code(code: str) -> Optional[str]:
+    """Optional pseudonymous code (e.g. N07) given to each nurse by the pilot lead.
+    Only short letter/number codes are kept, never names."""
+    code = (code or '').strip().upper()
+    return code if NURSE_CODE_RE.match(code) else None
+
+
+def confidence_level(result: dict) -> str:
+    """high = glossary match >= 90%, partial = weaker glossary match,
+    low = AI fallback translation, none = not understood."""
+    if result.get('unclear'):
+        return 'none'
+    c = result.get('confidence', 0.0)
+    if c >= 0.9:
+        return 'high'
+    if c > 0:
+        return 'partial'
+    return 'low'
 
 
 EXAMPLES_FILE = Path('clinical_examples.json')
@@ -220,7 +289,7 @@ def extract_urgency(note: str):
     return match.group(1).capitalize() if match else None
 
 
-def generate_or_ask_for_rating(audio_file, department, pending_note_id, language=DEFAULT_LANG):
+def generate_or_ask_for_rating(audio_file, department, pending_note_id, language=DEFAULT_LANG, nurse_code=''):
     """Before making a new note, ask the nurse to rate the previous one."""
     if pending_note_id:
         keep = gr.update()
@@ -228,23 +297,32 @@ def generate_or_ask_for_rating(audio_file, department, pending_note_id, language
                                       '👍, 👎 or 🤷 Not sure, then tap Generate again.')
         return (keep, keep, keep, keep, keep, pending_note_id, warning, keep, warning,
                 gr.update(value=RATE_FIRST_LABEL))
-    result = process_audio(audio_file, department, language)
+    result = process_audio(audio_file, department, language, nurse_code)
     note_made = bool(result[5])   # a note id means a note was generated and now needs rating
     return (*result, '', gr.update(value=RATE_FIRST_LABEL if note_made else GENERATE_LABEL))
 
 
-def process_audio(audio_file, department='Not specified', language=DEFAULT_LANG):
+def process_audio(audio_file, department='Not specified', language=DEFAULT_LANG, nurse_code=''):
     """Returns the 5 output boxes, the note id (for feedback) and a cleared feedback message."""
     if audio_file is None:
         return '', '', '', '', '', '', '', ''
     transcript = english_symptom = literal_meaning = confidence_str = ''
+    note_id = new_interaction_id()          # one id per interaction, whatever the outcome
+    keywords_key = lang_cfg(language).get('danger_keywords', '')
+    stage = 'transcription'
+    log = dict(note_id=note_id, language=language, nurse_code=clean_nurse_code(nurse_code))
+    speech_model = None
     try:
-        transcript = transcribe_audio(audio_file, language)
+        transcript, speech_model = transcribe_audio_detailed(audio_file, language)
+        log['speech_model'] = speech_model
         if not transcript:
-            log_usage(department, 'no_speech')
+            log_usage(department, 'no_speech', versions=versions(language), **log)
             return ('No speech detected. Please record again, speaking clearly '
                     'for a few seconds.'), '', '', '', '', '', '', ''
-        english_symptom, literal_meaning, confidence = translate_to_english(transcript, language)
+        stage = 'translation'
+        result = translate_detailed(transcript, language)
+        english_symptom, literal_meaning, confidence = result['english'], result['meaning'], result['confidence']
+        level = confidence_level(result)
         if confidence >= 0.9:
             confidence_str = f'{confidence:.0%} glossary match'
         elif confidence > 0:
@@ -254,28 +332,38 @@ def process_audio(audio_file, department='Not specified', language=DEFAULT_LANG)
         # Safety check that does not depend on the AI
         reasons = check_danger(glossary_term=english_symptom if confidence > 0 else '',
                                transcript=transcript,
-                               keywords_key=lang_cfg(language).get('danger_keywords', ''),
+                               keywords_key=keywords_key,
                                english_text=f'{english_symptom} {literal_meaning}')
+        stage = 'note'
         clinical_note = generate_clinical_note(english_symptom, literal_meaning, language)
-        note_id = log_usage(department, 'note', glossary_match=confidence > 0,
-                            confidence=confidence, symptom=english_symptom,
-                            urgency=extract_urgency(clinical_note),
-                            danger_sign=bool(reasons))
         if confidence == 0:
             clinical_note = ('LOW CONFIDENCE - phrase not in glossary. '
                              'Confirm with the patient before acting.\n\n' + clinical_note)
         if reasons:
             clinical_note = ('URGENT - possible danger sign detected by the safety check. '
                              'Escalate now.\n\n' + clinical_note)
+        log_usage(department, 'note', glossary_match=confidence > 0,
+                  confidence=confidence, symptom=english_symptom,
+                  urgency=extract_urgency(clinical_note), danger_sign=bool(reasons),
+                  confidence_level=level, match_id=result.get('match_id'),
+                  danger_rule_ids=danger_rule_ids(reasons, keywords_key),
+                  versions=versions(language), **log)
+        # Clinical content: only written when LOG_CONTENT is enabled (off by default)
+        log_content(note_id, language=language, transcript=transcript,
+                    english=english_symptom, meaning=literal_meaning,
+                    ai_fallback_translation=result.get('fallback', ''),
+                    note=clinical_note)
         return (transcript, english_symptom, literal_meaning, confidence_str, clinical_note,
                 note_id, '', danger_banner(reasons))
     except Exception as e:
         import traceback
         traceback.print_exc()
-        log_usage(department, 'error')
         # Keep whatever already worked so the nurse still sees it
         reasons = check_danger(transcript=transcript, english_text=f'{english_symptom} {literal_meaning}',
-                               keywords_key=lang_cfg(language).get('danger_keywords', ''))
+                               keywords_key=keywords_key)
+        log_usage(department, 'error', error_stage=stage, danger_sign=bool(reasons),
+                  danger_rule_ids=danger_rule_ids(reasons, keywords_key),
+                  versions=versions(language), **log)
         return (transcript or f'Error: {e}', english_symptom, literal_meaning,
                 confidence_str, f'Could not finish: {e}\nPlease try again in a moment.', '', '',
                 danger_banner(reasons))
@@ -596,6 +684,10 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
                         value='Not specified',
                         label='Department (optional)',
                     )
+                    nurse_code_input = gr.Textbox(
+                        label='Your nurse code (optional, e.g. N07). Never your name.',
+                        max_lines=1,
+                    )
                     submit_btn = gr.Button(
                         GENERATE_LABEL,
                         elem_id='submit-btn',
@@ -634,9 +726,24 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
             note_id_state = gr.State('')
             gr.HTML('<div class="panel-label" style="margin-top:6px;">✅ Was this note correct?</div>',
                     elem_classes=['slot'], elem_id='rating-anchor')
+            with gr.Accordion('📝 More detail (optional): answer before tapping a rating', open=False,
+                              elem_classes=['soft-section']):
+                meaning_q = gr.Radio(
+                    choices=[('Yes', 'yes'), ('Mostly', 'mostly'), ('No', 'no'),
+                             ('Unable to assess', 'unable_to_assess')],
+                    label="Was the patient's intended meaning preserved?")
+                useful_q = gr.Radio(
+                    choices=[('Yes', 'yes'), ('Partly', 'partly'), ('No', 'no'),
+                             ('Unable to assess', 'unable_to_assess')],
+                    label='Is the handoff note useful for a nurse?')
+                danger_q = gr.Radio(
+                    choices=[('Yes', 'yes'), ('Missed a warning', 'missed_warning'),
+                             ('False warning', 'false_warning'),
+                             ('No warning applicable', 'not_applicable'), ('Unsure', 'unsure')],
+                    label='Were danger signs handled appropriately?')
             feedback_comment = gr.Textbox(
-                label='Comment (optional): write it first, then tap a rating below. '
-                      'Please do not include patient names or details.',
+                label='What expression or note wording needs correction? (optional) '
+                      'Write it first, then tap a rating below. Do not include patient names or details.',
                 lines=2,
             )
             with gr.Row():
@@ -704,7 +811,7 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
 
     submit_btn.click(
         fn=generate_or_ask_for_rating,
-        inputs=[audio_input, department_input, note_id_state, language_input],
+        inputs=[audio_input, department_input, note_id_state, language_input, nurse_code_input],
         outputs=[transcript_out, english_out, meaning_out, confidence_out, clinical_note_out,
                  note_id_state, feedback_status, danger_out, generate_status, submit_btn],
     ).then(fn=None, js=SCROLL_TO_NOTE_JS)
@@ -785,29 +892,25 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
     demo.load(show_impact, outputs=[impact_out])
     impact_refresh.click(show_impact, outputs=[impact_out])
 
-    def record_feedback(note_id, comment, rating):
+    def record_feedback(note_id, comment, meaning, useful, danger, nurse_code, rating):
         if not note_id:
             return (status_html('info', 'No note to rate yet, or this note is already rated.'),
-                    comment, note_id, '', gr.update())
-        log_feedback(note_id, rating, comment)
+                    comment, note_id, '', gr.update(), gr.update(), gr.update(), gr.update())
+        details = {'meaning_preserved': meaning, 'handoff_useful': useful, 'danger_handling': danger}
+        log_feedback(note_id, rating, comment, details, clean_nurse_code(nurse_code))
+        parts = ['rating'] + (['answers'] if any(details.values()) else []) + \
+                (['comment'] if (comment or '').strip() else [])
+        saved = ' and '.join([', '.join(parts[:-1]), parts[-1]]) if len(parts) > 1 else parts[0]
         # Clear the note id: this note is rated, so the next one can be generated
-        return status_html('success', '<b>Thank you!</b> Your rating' + (' and comment were' if (comment or '').strip() else ' was') + ' saved.'), '', '', '', gr.update(value=GENERATE_LABEL)
+        return (status_html('success', f'<b>Thank you!</b> Your {saved} {"was" if len(parts) == 1 else "were"} saved.'),
+                '', '', '', gr.update(value=GENERATE_LABEL), None, None, None)
 
-    correct_btn.click(
-        fn=lambda note_id, comment: record_feedback(note_id, comment, 'correct'),
-        inputs=[note_id_state, feedback_comment],
-        outputs=[feedback_status, feedback_comment, note_id_state, generate_status, submit_btn],
-    )
-    wrong_btn.click(
-        fn=lambda note_id, comment: record_feedback(note_id, comment, 'needs_changes'),
-        inputs=[note_id_state, feedback_comment],
-        outputs=[feedback_status, feedback_comment, note_id_state, generate_status, submit_btn],
-    )
-    unsure_btn.click(
-        fn=lambda note_id, comment: record_feedback(note_id, comment, 'not_sure'),
-        inputs=[note_id_state, feedback_comment],
-        outputs=[feedback_status, feedback_comment, note_id_state, generate_status, submit_btn],
-    )
+    feedback_inputs = [note_id_state, feedback_comment, meaning_q, useful_q, danger_q, nurse_code_input]
+    feedback_outputs = [feedback_status, feedback_comment, note_id_state, generate_status, submit_btn,
+                        meaning_q, useful_q, danger_q]
+    for button, rating in ((correct_btn, 'correct'), (wrong_btn, 'needs_changes'), (unsure_btn, 'not_sure')):
+        button.click(fn=functools.partial(record_feedback, rating=rating),
+                     inputs=feedback_inputs, outputs=feedback_outputs)
 
 if __name__ == '__main__':
     demo.launch()

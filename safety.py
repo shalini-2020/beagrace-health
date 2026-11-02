@@ -6,6 +6,7 @@ patient's Yoruba words, and (3) the English meaning, against the editable list
 in danger_signs.json. If anything matches, the app shows a red URGENT banner,
 even if the AI-written note says otherwise.
 """
+import hashlib
 import json
 from pathlib import Path
 
@@ -34,6 +35,33 @@ def check_danger(glossary_term: str = '', transcript: str = '', english_text: st
     )
     entry = Entry(phrase='', meaning='', clinical_term=glossary_term) if glossary_term else None
     return checker.check(said=transcript, meaning=english_text, entry=entry, language='local')
+
+
+def rules_version() -> str:
+    """Short fingerprint of danger_signs.json, so each log record shows which rule list was used."""
+    try:
+        return hashlib.sha1(DANGER_FILE.read_bytes()).hexdigest()[:8]
+    except Exception:
+        return 'unknown'
+
+
+def danger_rule_ids(reasons: list, keywords_key: str = 'yoruba_keywords') -> list:
+    """Turn the reasons into rule identifiers for the log, e.g. 'term:3',
+    'local_kw:5', 'en_kw:2' (positions in danger_signs.json). Rule ids only:
+    no patient words are logged. Read them together with rules_version."""
+    rules = _load()
+    def norm(x):
+        return str(x).strip().strip('"').lower()
+    lists = [('term', rules.get('glossary_terms', [])),
+             ('local_kw', rules.get(keywords_key or '', [])),
+             ('en_kw', rules.get('english_keywords', []))]
+    ids = []
+    for reason in reasons:
+        r = norm(reason)
+        found = next((f'{prefix}:{i}' for prefix, items in lists
+                      for i, item in enumerate(items) if norm(item) == r), 'unmapped')
+        ids.append(found)
+    return list(dict.fromkeys(ids))
 
 
 def danger_banner(reasons: list) -> str:

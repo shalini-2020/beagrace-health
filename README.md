@@ -96,13 +96,50 @@ beagrace-health/
 ├── safety.py           # Danger-sign check, independent of the AI
 ├── danger_signs.json   # Editable list of danger signs (nurse-reviewed)
 ├── learning.py         # Learning glossary: nurse suggestions + reviewer approval
-├── usage_log.py        # Anonymous usage, feedback and review log
+├── usage_log.py        # Anonymous usage, feedback and review log (content logging off by default)
+├── compare_baselines.py # Blinded comparison: general translator vs LLM vs ClinGuard
+├── eval_cases_template.csv # Template for reviewer-labelled evaluation cases
 ├── impact.py           # Live Impact tab (totals from the pilot)
 ├── languages.json      # Supported languages and their glossary files
 ├── glossary.json       # 60-entry Ekiti Yoruba medical vocabulary
 ├── requirements.txt    # Python dependencies
 └── README.md
 ```
+
+---
+
+## 🔒 Privacy and logging
+
+BeaGrace is privacy-first. By default it stores **no audio, no transcript and no
+patient details**. Each interaction (note, no speech or error) gets one
+`note_id`, and the anonymous usage record holds only:
+
+| Field | Meaning |
+|---|---|
+| `note_id` | Links the usage record to the nurse's rating (and to content records, if enabled) |
+| `language`, `department`, `outcome`, `error_stage` | What happened, and where it failed if it did |
+| `nurse_code` | Optional pseudonymous code (must contain a digit, e.g. N07), never a name |
+| `confidence`, `confidence_level` | Match score and category: `high`, `partial`, `low` (AI fallback), `none` |
+| `match_id`, `symptom` | Which curated glossary entry matched (an id, not patient words) |
+| `danger_sign`, `danger_rule_ids` | Whether the safety check fired, and which rules (positions in `danger_signs.json`) |
+| `urgency` | Urgency level from the note |
+| `speech_model`, `app_version`, `clinguard_version`, `glossary_version`, `rules_version` | Which versions produced the result |
+
+Nurse feedback is linked by `note_id`: the quick rating, optional answers on whether the meaning was preserved, whether the note is useful and whether danger signs were handled well (each with an "unable to assess" or "not applicable" choice), and an optional correction comment.
+Obvious identifiers in comments (phone numbers, emails, dates, long numbers)
+are masked before saving. Names cannot be detected reliably, so the comment
+box asks nurses not to include patient details.
+
+**Clinical content logging is OFF by default.** Setting `LOG_CONTENT=true`
+also stores the transcript, English meaning, AI fallback translation and
+final note under the same `note_id`, in a separate folder that syncs only to
+its own private dataset (`CONTENT_LOG_REPO`). A switch is not compliance:
+enable it only after the pilot site's written authorization, a lawful basis
+and patient notice or consent where required, restricted access, and agreed
+retention and deletion rules.
+
+For accuracy evaluation, use a separate dataset of consented, de-identified
+recordings or standard test phrases rather than routine patient encounters.
 
 ---
 
@@ -187,6 +224,20 @@ A **Patient language** selector appears automatically once more than one languag
 | End-to-end latency | ~10-15 seconds |
 
 For cases where confidence falls below 75%, the system translates with the LLM instead and marks the note LOW CONFIDENCE for nurse review.
+
+### Comparing against baselines (`compare_baselines.py`)
+
+A blinded three-way comparison on the same input text: a general-purpose
+translator, the same LLM without the glossary or ClinGuard, and BeaGrace with
+ClinGuard. Qualified Yoruba-speaking and clinical reviewers label the cases
+(`eval_cases_template.csv`) without seeing any system output, then score the
+shuffled outputs. The script reports meaning accuracy, important-omission
+rate, danger-sign recall, false-alert rate and the fallback rate, with 95%
+intervals, and splits ClinGuard results into glossary-matched and fallback
+cases. Use synthetic phrases or consented, de-identified transcripts only.
+Limitation: output wording styles differ by system, so blinding is partial.
+
+Nurse ratings in the Impact tab show acceptance by nurses, not verified accuracy.
 
 ---
 

@@ -3,3 +3,5 @@ __pycache__/
 *.pyc
 eval_results.csv
 usage_logs/
+content_logs/
+eval_out/

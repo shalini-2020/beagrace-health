@@ -50,11 +50,20 @@ def compute_stats(glossary_size: int) -> dict:
         'correct_pct': round(100 * ratings['correct'] / rated) if rated else None,
         'danger_alerts': sum(1 for r in notes if r.get('danger_sign')),
         'phrases_learned': len(reviews),
+        # Newer fields (records from 2 Nov 2026 onward); older records are left out of these
+        'nurses': len({r.get('nurse_code') for r in notes if r.get('nurse_code')}),
+        'fallback_pct': _pct(sum(1 for r in notes if r.get('confidence_level') == 'low'),
+                             sum(1 for r in notes if r.get('confidence_level'))),
+        'corrections': ratings['needs_changes'],
     }
     _CACHE.update(at=time.time(), stats=stats)
     stats = dict(stats)
     stats['glossary_size'] = glossary_size
     return stats
+
+
+def _pct(part: int, whole: int):
+    return round(100 * part / whole) if whole else None
 
 
 def _card(number, label, note=''):
@@ -69,11 +78,15 @@ def impact_html(stats: dict) -> str:
     match = f"{stats['glossary_match_pct']}%" if stats['glossary_match_pct'] is not None else dash
     cards = ''.join([
         _card(stats['notes'], 'Clinical notes generated', f"over {stats['days_active']} day(s)" if stats['notes'] else 'pilot starting'),
-        _card(correct, 'Rated correct by nurses', f"{stats['rated']} rated" if stats['rated'] else 'no ratings yet'),
+        _card(correct, 'Accepted by nurses', f"{stats['rated']} rated · nurse view, not verified accuracy" if stats['rated'] else 'no ratings yet'),
         _card(match, 'Recognised from the dialect glossary'),
         _card(stats['danger_alerts'], 'Danger signs flagged for escalation'),
         _card(stats['glossary_size'], 'Phrases in the glossary', f"{stats['phrases_learned']} learned from nurses"),
         _card(len(stats['departments']), 'Departments using it'),
+        _card(stats['nurses'] or dash, 'Nurses taking part', 'counted by nurse code'),
+        _card(f"{stats['fallback_pct']}%" if stats['fallback_pct'] is not None else dash,
+              'Needed AI fallback', 'not in the glossary'),
+        _card(stats['corrections'], 'Notes marked "needs changes"'),
     ])
     if stats['departments']:
         dept_rows = ''.join(f'<li><b>{name}</b> · {count} note{"s" if count != 1 else ""}</li>'
