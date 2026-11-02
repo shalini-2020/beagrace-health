@@ -6,4 +6,4 @@ numpy
 requests
 python-dotenv
 huggingface_hub
-clinguard>=0.1.1
+clinguard>=0.1.2
