@@ -332,14 +332,26 @@ def extract_urgency(note: str):
     return match.group(1).capitalize() if match else None
 
 
-def generate_or_ask_for_rating(audio_file, department, pending_note_id, language=DEFAULT_LANG, nurse_code=''):
+WHATSAPP_FILE_TYPES = ['.mp4', '.m4a', '.aac', '.opus', '.ogg', '.oga', '.mp3', '.wav',
+                       '.3gp', '.amr', '.webm', '.flac']
+
+
+def generate_or_ask_for_rating(audio_file, department, pending_note_id, language=DEFAULT_LANG,
+                               nurse_code='', whatsapp_file=None):
     """Before making a new note, ask the nurse to rate the previous one."""
+    keep = gr.update()
     if pending_note_id:
-        keep = gr.update()
         warning = status_html('warn', '<b>Please rate the previous note first.</b> Scroll down and tap '
                                       '👍, 👎 or 🤷 Not sure, then tap Generate again.')
         return (keep, keep, keep, keep, keep, pending_note_id, warning, keep, warning,
                 gr.update(value=RATE_FIRST_LABEL))
+    if audio_file and whatsapp_file:
+        # Never guess which recording belongs to the patient in front of the nurse
+        warning = status_html('warn', '<b>Two audio files are loaded.</b> Remove one (tap the ✕ on it), '
+                                      'then tap Generate again.')
+        return (keep, keep, keep, keep, keep, pending_note_id, warning, keep, warning,
+                gr.update(value=GENERATE_LABEL))
+    audio_file = audio_file or whatsapp_file
     result = process_audio(audio_file, department, language, nurse_code)
     note_made = bool(result[5])   # a note id means a note was generated and now needs rating
     return (*result, '', gr.update(value=RATE_FIRST_LABEL if note_made else GENERATE_LABEL))
@@ -716,6 +728,15 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
                         label='Upload audio file (Ekiti Yoruba)',
                         type='filepath',
                     )
+                    # The audio box above only accepts audio/* files, so WhatsApp voice
+                    # notes saved as .mp4 are rejected by the browser. This box takes them.
+                    whatsapp_input = gr.File(
+                        label='Or upload a WhatsApp voice note (.mp4, .m4a, .aac, .opus, .ogg, .mp3)',
+                        file_types=WHATSAPP_FILE_TYPES,
+                        file_count='single',
+                        type='filepath',
+                        height=90,
+                    )
                     language_input = gr.Dropdown(
                         choices=[(cfg['label'], code) for code, cfg in LANGUAGES.items()],
                         value=DEFAULT_LANG,
@@ -854,7 +875,8 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
 
     submit_btn.click(
         fn=generate_or_ask_for_rating,
-        inputs=[audio_input, department_input, note_id_state, language_input, nurse_code_input],
+        inputs=[audio_input, department_input, note_id_state, language_input, nurse_code_input,
+                whatsapp_input],
         outputs=[transcript_out, english_out, meaning_out, confidence_out, clinical_note_out,
                  note_id_state, feedback_status, danger_out, generate_status, submit_btn],
     ).then(fn=None, js=SCROLL_TO_NOTE_JS)
