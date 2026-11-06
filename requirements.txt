@@ -7,3 +7,4 @@ requests
 python-dotenv
 huggingface_hub
 clinguard>=0.1.2
+fpdf2

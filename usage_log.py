@@ -20,6 +20,9 @@ What is recorded (no audio, no transcript, no patient details):
              writing and access, retention and deletion rules are in place.
   suggestions / reviews - glossary phrases a nurse chose to submit, and the
              reviewer's approve / reject decision (see learning.py)
+  evaluations - independent nurse evaluation of standardised, simulated scenarios
+             (see nurse_eval.py). Kept apart from usage and feedback; because the
+             scenarios are scripted, their transcripts and notes are kept for scoring.
 
 On Hugging Face, records are synced every 10 minutes to a PRIVATE dataset
 (default: ss-shalini-2021/beagrace-usage) so they survive app restarts.
@@ -44,6 +47,7 @@ USAGE_FILE = LOG_DIR / f'usage_{_RUN_ID}.jsonl'
 FEEDBACK_FILE = LOG_DIR / f'feedback_{_RUN_ID}.jsonl'
 SUGGESTIONS_FILE = LOG_DIR / f'suggestions_{_RUN_ID}.jsonl'
 REVIEWS_FILE = LOG_DIR / f'reviews_{_RUN_ID}.jsonl'
+EVALUATIONS_FILE = LOG_DIR / f'evaluations_{_RUN_ID}.jsonl'
 
 LOG_REPO = os.environ.get('USAGE_LOG_REPO', 'ss-shalini-2021/beagrace-usage')
 
@@ -118,7 +122,7 @@ def log_usage(department: str, outcome: str, glossary_match: bool = False,
               confidence_level: Optional[str] = None, match_id: Optional[str] = None,
               danger_rule_ids: Optional[list] = None, error_stage: Optional[str] = None,
               versions: Optional[dict] = None, nurse_code: Optional[str] = None,
-              speech_model: Optional[str] = None) -> str:
+              speech_model: Optional[str] = None, facility_code: Optional[str] = None) -> str:
     """Record one interaction (note / no_speech / error). Returns its note_id,
     which links feedback and (if enabled) content records to it."""
     note_id = note_id or new_interaction_id()
@@ -128,6 +132,7 @@ def log_usage(department: str, outcome: str, glossary_match: bool = False,
         'department': department or 'Not specified',
         'language': language,
         'nurse_code': nurse_code,                # optional pseudonymous code, never a name
+        'facility_code': facility_code,          # optional code like FAC001, never a facility name
         'outcome': outcome,                      # note / no_speech / error
         'error_stage': error_stage,              # transcription / translation / note / None
         'glossary_match': glossary_match,
@@ -196,8 +201,8 @@ def log_feedback(note_id: str, rating: str, comment: str = '', details: Optional
 
 
 def append_record(kind: str, record: dict) -> None:
-    """kind: 'suggestions' or 'reviews'."""
-    path = SUGGESTIONS_FILE if kind == 'suggestions' else REVIEWS_FILE
+    """kind: 'suggestions', 'reviews' or 'evaluations'."""
+    path = {'suggestions': SUGGESTIONS_FILE, 'evaluations': EVALUATIONS_FILE}.get(kind, REVIEWS_FILE)
     _append(path, {'time_utc': _now(), **record})
 
 

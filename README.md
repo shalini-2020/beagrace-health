@@ -239,6 +239,52 @@ Limitation: output wording styles differ by system, so blinding is partial.
 
 Nurse ratings in the Impact tab show acceptance by nurses, not verified accuracy.
 
+### Independent nurse evaluation (🧪 Evaluation tab, `nurse_eval.py`)
+
+Every evaluator rates the **same** notes, made once from the **same** approved
+recordings, so results can be compared across nurses. Kept separate from pilot
+use: none of it is counted in the usage, feedback or Impact totals.
+
+1. **Scenarios.** The clinical lead writes standardised, simulated scenarios in
+   `eval_scenarios.json` and sets `"approved": true` once approved. Never use a
+   real patient encounter.
+2. **Recordings.** Consenting speakers record each scenario. Name files
+   `<scenario_id>__<speaker>.<ext>` (e.g. `ANC-01__S1.m4a`) and keep them in a
+   private folder such as `eval_recordings/` (git-ignored). Audio is never uploaded.
+3. **Generate the notes once**, on your computer (API keys in `.env`, and
+   `hf auth login` with write access): `python nurse_eval.py generate eval_recordings`.
+   The outputs, not the audio, are saved as a batch to the private dataset.
+4. **Evaluators** (codes in an `EVALUATOR_CODES` secret, e.g. `EV01`) answer the
+   same five questions for each note: meaning preserved, useful for handoff,
+   missing or misleading information, danger signs, and whether they would use
+   it. Question 1 counts only from evaluators who understand Ekiti Yoruba;
+   nurses assess clinical completeness, usefulness and safety.
+5. **Reference answers** are written by qualified Yoruba-speaking and clinical
+   reviewers in `eval_references.csv` (template: `eval_references_template.csv`)
+   without seeing any output. The file is git-ignored: keep it private.
+6. **Score:** `python nurse_eval.py score eval_references.csv` reports danger-sign
+   detection against the references (once per note), the evaluators' answers,
+   agreement between evaluators (Krippendorff's alpha) and
+   `eval_out/nurse_evaluation_results.csv` for term-level adjudication.
+
+The 👍 / 👎 / 🤷 buttons in the Nurse tool remain the everyday pilot feedback.
+
+### Facility codes
+
+Nurses can enter an optional facility code (e.g. `FAC001`). Set the issued codes
+in a `FACILITY_CODES` secret; the pilot lead keeps the code-to-facility list
+privately. Facility names are never stored.
+
+### Dated reports and versions
+
+The Impact tab's **Download dated PDF report** button creates a snapshot with
+the period, counts, denominators, interpretation paths, software versions and
+definitions. Its data fingerprint can be re-checked later with
+`python impact_report.py --verify <records counted up to>`. Every interaction
+records the app version, a code fingerprint and the ClinGuard, glossary and
+danger-rule versions at that moment, so results stay tied to the release that
+produced them. Bump `APP_VERSION` in `app.py` with each release.
+
 ---
 
 ## 🗺️ Roadmap

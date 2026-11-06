@@ -12,6 +12,7 @@ The page has two parts:
   - Independent evaluation: accuracy against reference answers. Left unreported until
     qualified reviewers have labelled cases and run the blinded comparison.
 """
+import hashlib
 import os
 import time
 from collections import Counter
@@ -40,17 +41,29 @@ def _is_real(record: dict) -> bool:
             and record.get('department') != TEST_DEPARTMENT)
 
 
+def _eval_progress(in_period) -> dict:
+    recs = [r for r in load_records('evaluations') if in_period(r)]
+    return {'eval_assessments': len(recs),
+            'eval_evaluators': len({r.get('evaluator_id') for r in recs if r.get('evaluator_id')}),
+            'eval_scenarios': len({r.get('scenario_id') for r in recs if r.get('scenario_id')})}
+
+
 def _pct(part: int, whole: int):
     return round(100 * part / whole) if whole else None
 
 
-def compute_stats(glossary_size: int) -> dict:
-    if _CACHE['stats'] and time.time() - _CACHE['at'] < CACHE_SECONDS:
+def compute_stats(glossary_size: int, fresh: bool = False, until: str = None) -> dict:
+    """until: optional ISO UTC time; only records up to then are counted (used to
+    re-check a dated report's fingerprint later). Implies fresh."""
+    fresh = fresh or bool(until)
+    if not fresh and _CACHE['stats'] and time.time() - _CACHE['at'] < CACHE_SECONDS:
         stats = dict(_CACHE['stats'])
         stats['glossary_size'] = glossary_size
         return stats
 
-    usage = [r for r in load_records('usage') if _is_real(r)]
+    until = until or datetime.now(timezone.utc).isoformat(timespec='seconds')
+    in_period = lambda r: r.get('time_utc', '') <= until
+    usage = [r for r in load_records('usage') if _is_real(r) and in_period(r)]
     outcomes = Counter(r.get('outcome') for r in usage)
     notes = [r for r in usage if r.get('outcome') == 'note']
     note_by_id = {r['note_id']: r for r in notes if r.get('note_id')}
@@ -58,7 +71,7 @@ def compute_stats(glossary_size: int) -> dict:
     # One rating per note: keep the latest if a note was somehow rated twice
     latest = {}
     for f in sorted(load_records('feedback'), key=lambda f: f.get('time_utc', '')):
-        if f.get('note_id') in note_by_id:
+        if f.get('note_id') in note_by_id and in_period(f):
             latest[f['note_id']] = f
     feedback = list(latest.values())
     ratings = Counter(f.get('rating') for f in feedback)
@@ -75,25 +88,40 @@ def compute_stats(glossary_size: int) -> dict:
                         'not_sure': c['not_sure']}
 
     reviews = [r for r in load_records('reviews')
-               if r.get('decision') == 'approved' and r.get('time_utc', '') >= PILOT_START]
+               if r.get('decision') == 'approved' and r.get('time_utc', '') >= PILOT_START
+               and in_period(r)]
     departments = Counter(r.get('department') for r in notes
                           if r.get('department') not in (None, '', 'Not specified'))
     days = sorted({r['time_utc'][:10] for r in notes if r.get('time_utc')})
     nurse_codes_using = {r.get('nurse_code') for r in notes if r.get('nurse_code')}
     nurse_codes_rating = {f.get('nurse_code') for f in feedback if f.get('nurse_code')}
+    facilities = Counter(r.get('facility_code') for r in notes if r.get('facility_code'))
 
-    # Software versions seen in the period (latest first)
+    # Software versions as RECORDED WITH EACH INTERACTION (not the version deployed now),
+    # with how many attempts each produced and over which dates. Latest first.
     def _versions(key):
-        seen = []
-        for r in sorted(usage, key=lambda r: r.get('time_utc', ''), reverse=True):
-            v = r.get(key)
-            if v and v not in seen:
-                seen.append(v)
-        return seen
+        found = {}
+        for r in usage:
+            v, t = r.get(key), r.get('time_utc', '')[:10]
+            if not v:
+                continue
+            f = found.setdefault(v, {'version': v, 'attempts': 0, 'first': t, 'last': t})
+            f['attempts'] += 1
+            f['first'], f['last'] = min(f['first'], t), max(f['last'], t)
+        return sorted(found.values(), key=lambda f: f['last'], reverse=True)
+
+    # Fingerprint of exactly which records were counted, so a dated report can later be
+    # checked against the private logs by an authorised reviewer (ids only, no content)
+    counted = sorted(f"u:{r.get('note_id')}:{r.get('outcome')}" for r in usage)
+    counted += sorted(f"f:{f.get('note_id')}:{f.get('rating')}" for f in feedback)
+    fingerprint = hashlib.sha256('\n'.join(counted).encode('utf-8')).hexdigest()[:16]
 
     stats = {
+        'fingerprint': fingerprint,
+        'counted_until': until,
+        'feedback_records': len(feedback),
         'period_start': PILOT_START,
-        'period_end': datetime.now(timezone.utc).strftime('%Y-%m-%d'),
+        'period_end': until[:10],
         'attempts': len(usage),
         'notes': len(notes),
         'no_speech': outcomes['no_speech'],
@@ -107,13 +135,19 @@ def compute_stats(glossary_size: int) -> dict:
         'not_sure': ratings['not_sure'],
         'nurses_using': len(nurse_codes_using),
         'nurses_rating': len(nurse_codes_rating),
+        'facilities': len(facilities),
+        'facility_notes': sum(facilities.values()),
         'notes_with_level': len(with_level),
         'pathways': by_path,
         'danger_notes': sum(1 for r in notes if r.get('danger_sign')),
         'danger_rules_fired': sum(len(r.get('danger_rule_ids') or []) for r in notes),
         'phrases_learned': len(reviews),
+        # Independent evaluation progress: counts only, never results (see nurse_eval.py)
+        **_eval_progress(in_period),
         'versions': {k: _versions(k) for k in
-                     ('app_version', 'clinguard_version', 'glossary_version', 'rules_version')},
+                     ('app_version', 'code_fingerprint', 'clinguard_version', 'glossary_version',
+                      'rules_version')},
+        'versions_unrecorded': sum(1 for r in usage if not r.get('app_version')),
     }
     _CACHE.update(at=time.time(), stats=stats)
     stats = dict(stats)
@@ -167,11 +201,21 @@ def _pathway_table(stats):
             f'<div class="impact-note">Out of {total} notes with interpretation data.</div>')
 
 
+VERSION_NAMES = {'app_version': 'App', 'code_fingerprint': 'Code fingerprint',
+                 'clinguard_version': 'ClinGuard', 'glossary_version': 'Glossary',
+                 'rules_version': 'Danger rules'}
+
+
+def version_text(entries: list) -> str:
+    return '; '.join(f"{e['version']} ({e['attempts']} attempts, {e['first']} to {e['last']})"
+                     for e in entries) or 'not recorded'
+
+
 def _versions_line(stats):
-    names = {'app_version': 'App', 'clinguard_version': 'ClinGuard',
-             'glossary_version': 'Glossary', 'rules_version': 'Danger rules'}
-    parts = [f"{names[k]} {', '.join(v[:3])}" for k, v in stats['versions'].items() if v]
-    return ' · '.join(parts) if parts else 'not recorded yet'
+    parts = [f"<br>{VERSION_NAMES[k]}: {version_text(v)}" for k, v in stats['versions'].items() if v]
+    if stats.get('versions_unrecorded'):
+        parts.append(f"<br>{stats['versions_unrecorded']} earlier attempts have no version recorded")
+    return ''.join(parts) if parts else 'not recorded yet'
 
 
 def impact_html(stats: dict) -> str:
@@ -189,6 +233,9 @@ def impact_html(stats: dict) -> str:
         _card(stats['corrections'], 'Notes marked "needs changes"'),
         _card(stats['nurses_using'] or dash, 'Nurses using the app', nurses_note),
         _card(stats['nurses_rating'] or dash, 'Nurses who rated notes', 'unique nurse codes'),
+        _card(stats['facilities'] or dash, 'Participating facilities',
+              f"from facility codes · {stats['facility_notes']} of {stats['notes']} notes have a code"
+              if stats['facilities'] else 'not recorded yet · shown once facility codes are entered'),
         _card(len(stats['departments']) or dash, 'Clinical departments',
               'with a department selected' if stats['departments'] else 'not recorded yet'),
         _card(stats['glossary_size'], 'Phrases in the glossary',
@@ -224,7 +271,10 @@ def impact_html(stats: dict) -> str:
         '<div class="impact-pending"><b>Not yet reported.</b> Accuracy, missed danger signs and '
         'comparison with a general translator and an LLM alone will be reported only after '
         'qualified Yoruba-speaking and clinical reviewers have set reference answers and run a '
-        'blinded, controlled comparison.</div>')
+        'blinded, controlled comparison.'
+        f"<br><br><b>In progress:</b> {stats['eval_assessments']} assessments by "
+        f"{stats['eval_evaluators']} nurse evaluators across {stats['eval_scenarios']} standardised "
+        'scenarios. These are kept separate from pilot use and are not counted above.</div>')
 
     definitions = f"""
         <details class="impact-defs"><summary>Definitions and versions</summary>
@@ -233,11 +283,18 @@ def impact_html(stats: dict) -> str:
           <li><b>Note generated</b>: a clinical note was produced.</li>
           <li><b>Rated</b>: a nurse tapped 👍 or 👎 on the note. 🤷 Not sure is shown separately
               and is not counted either way. Percentages are shown only from {MIN_RATED_FOR_PCT} rated notes.</li>
-          <li><b>Interpretation path</b>: glossary match ≥90%, partial glossary match, AI fallback
-              (phrase not in the glossary), or not understood.</li>
+          <li><b>Interpretation path</b>: each note has exactly one path, set by the best glossary
+              match for the whole transcript: <b>glossary match</b> (score ≥90%), <b>partial match</b>
+              (75-89%), <b>AI fallback</b> (no glossary phrase scored 75% or more, so the AI translated
+              the whole transcript), or <b>not understood</b> (the AI could not translate it). A note is
+              never counted in two paths, so the shares add up to 100%. When a glossary phrase matches,
+              the AI translation is not used for the rest of what was said.</li>
           <li><b>Danger-sign alert</b>: the rule-based safety check (no AI) flagged the note for escalation.</li>
           <li><b>Nurses</b>: distinct pseudonymous nurse codes. Notes without a code are not counted.</li>
-          <li><b>Software in use</b>: {_versions_line(stats)}</li>
+          <li><b>Facilities</b>: distinct facility codes (e.g. FAC001) issued by the pilot lead, who keeps
+              the code-to-facility list privately. Notes without a code are not counted.</li>
+          <li><b>Software versions</b> are those recorded with each interaction at the time it
+              happened, not the version deployed now: {_versions_line(stats)}</li>
         </ul></details>"""
 
     return f"""

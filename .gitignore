@@ -5,3 +5,7 @@ eval_results.csv
 usage_logs/
 content_logs/
 eval_out/
+
+# Independent evaluation: reference answers stay private
+eval_references.csv
+eval_recordings/

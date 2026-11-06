@@ -23,11 +23,28 @@ from usage_log import log_usage, log_feedback, log_content, new_interaction_id
 from safety import check_danger, danger_banner, danger_rule_ids, rules_version
 from learning import submit_suggestion, pending_suggestions, review, learned_entries
 from impact import compute_stats, impact_html, TEST_DEPARTMENT
+from impact_report import build_report
+import nurse_eval
 
 GLOSSARY_FILE = Path('glossary.json')
 
 # Bump APP_VERSION with each release so every log record shows which version made it.
-APP_VERSION = os.environ.get('APP_VERSION', '2026.11.02')
+APP_VERSION = os.environ.get('APP_VERSION', '2026.11.06')
+
+
+def _code_fingerprint() -> str:
+    """Short hash of the code that shapes each result, recorded with every interaction,
+    so a change is visible in the logs even if APP_VERSION was not bumped."""
+    h = hashlib.sha1()
+    for name in ('app.py', 'safety.py', 'learning.py'):
+        try:
+            h.update(Path(name).read_bytes())
+        except OSError:
+            pass
+    return h.hexdigest()[:8]
+
+
+CODE_FINGERPRINT = _code_fingerprint()
 
 # Languages the app supports. Add a language by adding an entry to languages.json
 # plus its glossary file (see README: "Adding a new language").
@@ -88,6 +105,7 @@ def glossary_version(lang: str = DEFAULT_LANG) -> str:
 
 def versions(lang: str = DEFAULT_LANG) -> dict:
     return {'app_version': APP_VERSION,
+            'code_fingerprint': CODE_FINGERPRINT,
             'clinguard_version': getattr(clinguard, '__version__', 'unknown'),
             'glossary_version': glossary_version(lang),
             'rules_version': rules_version()}
@@ -238,6 +256,27 @@ def clean_nurse_code(code: str) -> Optional[str]:
     return code if NURSE_CODE_RE.match(code) else None
 
 
+FACILITY_CODE_RE = re.compile(r'^FAC\d{3}$')
+
+
+def allowed_facility_codes() -> set:
+    """Codes issued by the pilot lead, set in the Space settings as FACILITY_CODES
+    (e.g. FAC001,FAC002). The code-to-facility mapping is kept privately by the pilot
+    lead and is never stored in the app."""
+    raw = os.environ.get('FACILITY_CODES', '')
+    return {c.strip().upper() for c in raw.split(',') if c.strip()}
+
+
+def clean_facility_code(code: str) -> Optional[str]:
+    """Optional facility code like FAC001. If FACILITY_CODES is set, only those codes are
+    accepted; otherwise any code in the FAC + 3 digits format. Anything else is dropped."""
+    code = (code or '').strip().upper()
+    if not FACILITY_CODE_RE.match(code):
+        return None
+    allowed = allowed_facility_codes()
+    return code if not allowed or code in allowed else None
+
+
 def confidence_level(result: dict) -> str:
     """high = glossary match >= 90%, partial = weaker glossary match,
     low = AI fallback translation, none = not understood."""
@@ -348,7 +387,7 @@ def glossary_phrase_text(result: dict) -> str:
 
 
 def generate_or_ask_for_rating(audio_file, department, pending_note_id, language=DEFAULT_LANG,
-                               nurse_code='', whatsapp_file=None):
+                               nurse_code='', whatsapp_file=None, facility_code=''):
     """Before making a new note, ask the nurse to rate the previous one."""
     keep = gr.update()
     if pending_note_id:
@@ -363,28 +402,38 @@ def generate_or_ask_for_rating(audio_file, department, pending_note_id, language
         return (keep, keep, keep, keep, keep, pending_note_id, warning, keep, warning,
                 gr.update(value=GENERATE_LABEL), keep)
     audio_file = audio_file or whatsapp_file
-    result = process_audio(audio_file, department, language, nurse_code)
+    result = process_audio(audio_file, department, language, nurse_code, facility_code)
     note_made = bool(result[5])   # a note id means a note was generated and now needs rating
-    return (*result[:8], '', gr.update(value=RATE_FIRST_LABEL if note_made else GENERATE_LABEL),
+    status = ''
+    if (facility_code or '').strip() and not clean_facility_code(facility_code):
+        status = status_html('info', '<b>Facility code not recognised</b>, so it was not saved with '
+                                     'this note. Check the code from your pilot lead (e.g. FAC001).')
+    return (*result[:8], status, gr.update(value=RATE_FIRST_LABEL if note_made else GENERATE_LABEL),
             result[8])
 
 
-def process_audio(audio_file, department='Not specified', language=DEFAULT_LANG, nurse_code=''):
+def process_audio(audio_file, department='Not specified', language=DEFAULT_LANG, nurse_code='',
+                  facility_code='', record=True, details=None):
     """Returns the 5 output boxes, the note id (for feedback), a cleared feedback message,
-    the danger banner and the matched glossary phrase (correct spelling, or '')."""
+    the danger banner and the matched glossary phrase (correct spelling, or '').
+    record=False: nothing is written to the pilot usage or content logs (evaluation runs).
+    details: optional dict, filled with the structured result (used by the evaluation tab)."""
+    log_usage_ = log_usage if record else (lambda *a, **k: None)
+    log_content_ = log_content if record else (lambda *a, **k: None)
     if audio_file is None:
         return '', '', '', '', '', '', '', '', ''
     transcript = english_symptom = literal_meaning = confidence_str = ''
     note_id = new_interaction_id()          # one id per interaction, whatever the outcome
     keywords_key = lang_cfg(language).get('danger_keywords', '')
     stage = 'transcription'
-    log = dict(note_id=note_id, language=language, nurse_code=clean_nurse_code(nurse_code))
+    log = dict(note_id=note_id, language=language, nurse_code=clean_nurse_code(nurse_code),
+               facility_code=clean_facility_code(facility_code))
     speech_model = None
     try:
         transcript, speech_model = transcribe_audio_detailed(audio_file, language)
         log['speech_model'] = speech_model
         if not transcript:
-            log_usage(department, 'no_speech', versions=versions(language), **log)
+            log_usage_(department, 'no_speech', versions=versions(language), **log)
             return ('No speech detected. Please record again, speaking clearly '
                     'for a few seconds.'), '', '', '', '', '', '', '', ''
         stage = 'translation'
@@ -410,17 +459,24 @@ def process_audio(audio_file, department='Not specified', language=DEFAULT_LANG,
         if reasons:
             clinical_note = ('URGENT - possible danger sign detected by the safety check. '
                              'Escalate now.\n\n' + clinical_note)
-        log_usage(department, 'note', glossary_match=confidence > 0,
+        log_usage_(department, 'note', glossary_match=confidence > 0,
                   confidence=confidence, symptom=english_symptom,
                   urgency=extract_urgency(clinical_note), danger_sign=bool(reasons),
                   confidence_level=level, match_id=result.get('match_id'),
                   danger_rule_ids=danger_rule_ids(reasons, keywords_key),
                   versions=versions(language), **log)
         # Clinical content: only written when LOG_CONTENT is enabled (off by default)
-        log_content(note_id, language=language, transcript=transcript,
+        log_content_(note_id, language=language, transcript=transcript,
                     english=english_symptom, meaning=literal_meaning,
                     ai_fallback_translation=result.get('fallback', ''),
                     note=clinical_note)
+        if details is not None:
+            details.update(transcript=transcript, english=english_symptom, meaning=literal_meaning,
+                           confidence=round(confidence * 100), confidence_level=level,
+                           match_id=result.get('match_id'), glossary_phrase=result.get('phrase', ''),
+                           urgency=extract_urgency(clinical_note), danger_sign=bool(reasons),
+                           danger_rule_ids=danger_rule_ids(reasons, keywords_key), note=clinical_note,
+                           speech_model=speech_model, **versions(language))
         return (transcript, english_symptom, literal_meaning, confidence_str, clinical_note,
                 note_id, '', danger_banner(reasons), glossary_phrase_text(result))
     except Exception as e:
@@ -429,7 +485,7 @@ def process_audio(audio_file, department='Not specified', language=DEFAULT_LANG,
         # Keep whatever already worked so the nurse still sees it
         reasons = check_danger(transcript=transcript, english_text=f'{english_symptom} {literal_meaning}',
                                keywords_key=keywords_key)
-        log_usage(department, 'error', error_stage=stage, danger_sign=bool(reasons),
+        log_usage_(department, 'error', error_stage=stage, danger_sign=bool(reasons),
                   danger_rule_ids=danger_rule_ids(reasons, keywords_key),
                   versions=versions(language), **log)
         return (transcript or f'Error: {e}', english_symptom, literal_meaning,
@@ -780,6 +836,10 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
                         label='Your nurse code (optional, e.g. N07). Never your name.',
                         max_lines=1,
                     )
+                    facility_code_input = gr.Textbox(
+                        label='Facility code (optional, e.g. FAC001). Never the facility name.',
+                        max_lines=1,
+                    )
                     submit_btn = gr.Button(
                         GENERATE_LABEL,
                         elem_id='submit-btn',
@@ -872,6 +932,39 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
         with gr.Tab('📊 Impact'):
             impact_out = gr.HTML(elem_classes=['slot'])
             impact_refresh = gr.Button('🔄 Refresh totals', elem_id='review-load-btn')
+            report_btn = gr.Button('📄 Download dated PDF report')
+            report_file = gr.File(label='Pilot impact report (PDF)', visible=False, interactive=False)
+        with gr.Tab('🧪 Evaluation'):
+            gr.HTML('''<div class="impact-pending"><b>Independent nurse evaluation only.</b>
+            Not for patient care. Every evaluator rates the same prepared notes, made from approved,
+            simulated recordings. Answer the same five questions for each note. These ratings are kept
+            separate and are <b>not</b> counted in the pilot totals.</div>''', elem_classes=['slot'])
+            with gr.Row(equal_height=True):
+                eval_code = gr.Textbox(label='Evaluator code (e.g. EV01). Never your name.', max_lines=1, scale=2)
+                eval_reads_yoruba = gr.Checkbox(label='I understand Ekiti Yoruba', value=False, scale=1)
+                eval_next_btn = gr.Button('▶ Start / next note', variant='primary', scale=1)
+            eval_progress = gr.HTML('', elem_classes=['slot'])
+            with gr.Row(equal_height=False):
+                with gr.Column(scale=1):
+                    eval_case = gr.HTML('', elem_classes=['slot'])
+                    eval_transcript = gr.Textbox(label='Heard by speech recognition', interactive=False)
+                    eval_phrase = gr.Textbox(label='Glossary phrase matched', interactive=False)
+                    with gr.Row():
+                        eval_symptom = gr.Textbox(label='English symptom', interactive=False, scale=2)
+                        eval_conf = gr.Textbox(label='Confidence', interactive=False, scale=1)
+                with gr.Column(scale=1):
+                    eval_note = gr.Textbox(label='Clinical handoff note', lines=12, interactive=False)
+            gr.HTML('<div class="panel-label" style="margin-top:6px;">📝 Your assessment</div>',
+                    elem_classes=['slot'])
+            eval_questions = [gr.Radio(options, label=question) for _, question, options in nurse_eval.QUESTIONS]
+            gr.HTML('<div class="impact-note">Question 1 is answered only by evaluators who understand '
+                    'Ekiti Yoruba. Others: it is recorded as "Unable to assess".</div>', elem_classes=['slot'])
+            eval_comment = gr.Textbox(label='Comments (optional). No names or patient details.', lines=2)
+            eval_submit_btn = gr.Button('✅ Submit assessment', variant='primary')
+            eval_status = gr.HTML('', elem_classes=['slot'])
+            eval_copy = gr.Textbox(label='Your responses (copy for your records)', lines=7,
+                                   interactive=False, buttons=['copy'], visible=False)
+            eval_output_state = gr.State(None)
         with gr.Tab('🔑 Reviewer'):
             with gr.Accordion(REVIEWER_TITLE, open=True, elem_classes=['reviewer-section']) as reviewer_acc:
                 gr.HTML("""
@@ -909,7 +1002,7 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
     submit_btn.click(
         fn=generate_or_ask_for_rating,
         inputs=[audio_input, department_input, note_id_state, language_input, nurse_code_input,
-                whatsapp_input],
+                whatsapp_input, facility_code_input],
         outputs=[transcript_out, english_out, meaning_out, confidence_out, clinical_note_out,
                  note_id_state, feedback_status, danger_out, generate_status, submit_btn,
                  glossary_phrase_out],
@@ -990,6 +1083,87 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
 
     demo.load(show_impact, outputs=[impact_out])
     impact_refresh.click(show_impact, outputs=[impact_out])
+
+    def make_report():
+        try:
+            stats = compute_stats(sum(len(load_glossary(code)) for code in LANGUAGES), fresh=True)
+            return gr.update(value=build_report(stats), visible=True), impact_html(stats)
+        except Exception as e:
+            print(f'[report] {e}')
+            return gr.update(visible=False), status_html(
+                'error', 'Could not create the report right now. Please try again later.')
+
+    report_btn.click(make_report, outputs=[report_file, impact_out])
+
+    # ---- Independent nurse evaluation (kept apart from pilot logs) ----
+    def evaluator_codes() -> set:
+        return {c.strip().upper() for c in os.environ.get('EVALUATOR_CODES', '').split(',') if c.strip()}
+
+    def _check_evaluator(code):
+        if not evaluator_codes():
+            return 'Evaluation is not set up yet (add an EVALUATOR_CODES secret in the Space settings).'
+        if code not in evaluator_codes():
+            return '<b>Evaluator code not recognised.</b> Use the code from your evaluation lead.'
+        return None
+
+    def _q1_update(reads_yoruba, reset=False):
+        if reads_yoruba:
+            return gr.update(interactive=True, value=None) if reset else gr.update(interactive=True)
+        return gr.update(interactive=False, value=nurse_eval.UNABLE)
+
+    def next_note(code, reads_yoruba):
+        code = (code or '').strip().upper()
+        n_q = len(nurse_eval.QUESTIONS)
+        hold = (gr.update(),) * 6 + (gr.update(),) * n_q + (gr.update(), gr.update(visible=False))
+        problem = _check_evaluator(code)
+        if problem:
+            return (status_html('warn', problem), None, *hold)
+        output, done, total = nurse_eval.next_for(code)
+        if not total:
+            return (status_html('info', 'No notes are ready for evaluation yet.'), None, *hold)
+        if output is None:
+            return (status_html('success', f'<b>All {total} notes rated.</b> Thank you!'), None, *hold)
+        sc = nurse_eval.scenario_by_id(output.get('scenario_id')) or {}
+        case = status_html('info', f"<b>Scenario {output.get('scenario_id')}</b> · {sc.get('department', '')}<br>"
+                                   f"<b>Situation:</b> {sc.get('situation', '')}<br>"
+                                   f"<b>Speaker said (script):</b> {sc.get('phrase', '')}")
+        conf = {'high': 'Glossary match', 'partial': 'Partial glossary match',
+                'low': 'AI fallback - not in glossary', 'none': 'Not understood'}.get(output.get('confidence_level'), '')
+        shown = (case, output.get('transcript', ''), output.get('glossary_phrase', ''),
+                 output.get('english', ''), conf, output.get('note', ''))
+        answers = (_q1_update(reads_yoruba, reset=True),) + (gr.update(value=None),) * (n_q - 1)
+        return (status_html('info', f'Note {done + 1} of {total}'), output, *shown, *answers,
+                gr.update(value=''), gr.update(value='', visible=False))
+
+    def submit_assessment(code, reads_yoruba, output, *rest):
+        answers_in, comment = rest[:-1], rest[-1]
+        code = (code or '').strip().upper()
+        keep = (gr.update(), gr.update(visible=False))
+        problem = _check_evaluator(code)
+        if problem:
+            return (status_html('warn', problem), output, *keep)
+        if not output:
+            return (status_html('warn', 'Tap <b>Start / next note</b> first.'), output, *keep)
+        answers = dict(zip(nurse_eval.QUESTION_KEYS, answers_in))
+        needed = [k for k in nurse_eval.QUESTION_KEYS if not (k == 'meaning' and not reads_yoruba)]
+        if any(not answers.get(k) for k in needed):
+            return (status_html('warn', 'Please answer all five questions.'), output, *keep)
+        if nurse_eval.already_rated(code, output['output_id']):
+            return (status_html('warn', 'You have already rated this note. Tap <b>Start / next note</b>.'),
+                    None, *keep)
+        eid = nurse_eval.save_evaluation(code, reads_yoruba, output, answers, comment)
+        text = nurse_eval.responses_text(code, output, answers, reads_yoruba)
+        return (status_html('success', f'<b>Saved</b> (assessment {eid}). Tap <b>Start / next note</b> '
+                                       'to continue.'), None, gr.update(), gr.update(value=text, visible=True))
+
+    eval_reads_yoruba.change(lambda r: _q1_update(r, reset=True), inputs=[eval_reads_yoruba],
+                             outputs=[eval_questions[0]])
+    eval_next_btn.click(next_note, inputs=[eval_code, eval_reads_yoruba],
+                        outputs=[eval_progress, eval_output_state, eval_case, eval_transcript, eval_phrase,
+                                 eval_symptom, eval_conf, eval_note, *eval_questions, eval_comment, eval_copy])
+    eval_submit_btn.click(submit_assessment,
+                          inputs=[eval_code, eval_reads_yoruba, eval_output_state, *eval_questions, eval_comment],
+                          outputs=[eval_status, eval_output_state, eval_comment, eval_copy])
 
     def record_feedback(note_id, comment, meaning, useful, danger, nurse_code, rating):
         if not note_id:
