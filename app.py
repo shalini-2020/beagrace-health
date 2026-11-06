@@ -209,7 +209,7 @@ def translate_detailed(text: str, lang: str = DEFAULT_LANG) -> dict:
     if matches:
         m = matches[0]
         return {'english': m['english'], 'meaning': m['meaning'], 'confidence': m['ratio'],
-                'match_id': m['match_id'], 'fallback': ''}
+                'match_id': m['match_id'], 'fallback': '', 'phrase': m['dialect']}
     prompt = f"""Translate this {cfg['name']} speech ({cfg.get('dialect_note', 'local dialect')}, transcribed by speech recognition, may contain errors) into plain English.
 Reply with the English translation only, one short sentence. If it cannot be understood, reply exactly: UNCLEAR
 
@@ -336,6 +336,17 @@ WHATSAPP_FILE_TYPES = ['.mp4', '.m4a', '.aac', '.opus', '.ogg', '.oga', '.mp3', 
                        '.3gp', '.amr', '.webm', '.flac']
 
 
+def glossary_phrase_text(result: dict) -> str:
+    """The glossary's correctly written phrase for a match, so nurses document correct
+    Ekiti Yoruba instead of the speech-recognition spelling. Empty if nothing matched."""
+    phrase = (result or {}).get('phrase') or ''
+    if not phrase:
+        return ''
+    if result.get('confidence', 0) >= 0.9:
+        return phrase
+    return f'{phrase}\n(Partial match - confirm with the patient that this is what they said)'
+
+
 def generate_or_ask_for_rating(audio_file, department, pending_note_id, language=DEFAULT_LANG,
                                nurse_code='', whatsapp_file=None):
     """Before making a new note, ask the nurse to rate the previous one."""
@@ -344,23 +355,25 @@ def generate_or_ask_for_rating(audio_file, department, pending_note_id, language
         warning = status_html('warn', '<b>Please rate the previous note first.</b> Scroll down and tap '
                                       '👍, 👎 or 🤷 Not sure, then tap Generate again.')
         return (keep, keep, keep, keep, keep, pending_note_id, warning, keep, warning,
-                gr.update(value=RATE_FIRST_LABEL))
+                gr.update(value=RATE_FIRST_LABEL), keep)
     if audio_file and whatsapp_file:
         # Never guess which recording belongs to the patient in front of the nurse
         warning = status_html('warn', '<b>Two audio files are loaded.</b> Remove one (tap the ✕ on it), '
                                       'then tap Generate again.')
         return (keep, keep, keep, keep, keep, pending_note_id, warning, keep, warning,
-                gr.update(value=GENERATE_LABEL))
+                gr.update(value=GENERATE_LABEL), keep)
     audio_file = audio_file or whatsapp_file
     result = process_audio(audio_file, department, language, nurse_code)
     note_made = bool(result[5])   # a note id means a note was generated and now needs rating
-    return (*result, '', gr.update(value=RATE_FIRST_LABEL if note_made else GENERATE_LABEL))
+    return (*result[:8], '', gr.update(value=RATE_FIRST_LABEL if note_made else GENERATE_LABEL),
+            result[8])
 
 
 def process_audio(audio_file, department='Not specified', language=DEFAULT_LANG, nurse_code=''):
-    """Returns the 5 output boxes, the note id (for feedback) and a cleared feedback message."""
+    """Returns the 5 output boxes, the note id (for feedback), a cleared feedback message,
+    the danger banner and the matched glossary phrase (correct spelling, or '')."""
     if audio_file is None:
-        return '', '', '', '', '', '', '', ''
+        return '', '', '', '', '', '', '', '', ''
     transcript = english_symptom = literal_meaning = confidence_str = ''
     note_id = new_interaction_id()          # one id per interaction, whatever the outcome
     keywords_key = lang_cfg(language).get('danger_keywords', '')
@@ -373,7 +386,7 @@ def process_audio(audio_file, department='Not specified', language=DEFAULT_LANG,
         if not transcript:
             log_usage(department, 'no_speech', versions=versions(language), **log)
             return ('No speech detected. Please record again, speaking clearly '
-                    'for a few seconds.'), '', '', '', '', '', '', ''
+                    'for a few seconds.'), '', '', '', '', '', '', '', ''
         stage = 'translation'
         result = translate_detailed(transcript, language)
         english_symptom, literal_meaning, confidence = result['english'], result['meaning'], result['confidence']
@@ -409,7 +422,7 @@ def process_audio(audio_file, department='Not specified', language=DEFAULT_LANG,
                     ai_fallback_translation=result.get('fallback', ''),
                     note=clinical_note)
         return (transcript, english_symptom, literal_meaning, confidence_str, clinical_note,
-                note_id, '', danger_banner(reasons))
+                note_id, '', danger_banner(reasons), glossary_phrase_text(result))
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -421,7 +434,7 @@ def process_audio(audio_file, department='Not specified', language=DEFAULT_LANG,
                   versions=versions(language), **log)
         return (transcript or f'Error: {e}', english_symptom, literal_meaning,
                 confidence_str, f'Could not finish: {e}\nPlease try again in a moment.', '', '',
-                danger_banner(reasons))
+                danger_banner(reasons), '')
     finally:
         # Remove only the cleaned wav temp file — no text files are written
         if audio_file:
@@ -785,7 +798,12 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
 
                 with gr.Column(scale=1):
                     gr.HTML('<div class="panel-label">🔬 Result</div>', elem_classes=['slot'])
-                    transcript_out = gr.Textbox(label='What the patient said (Yoruba)', interactive=False)
+                    transcript_out = gr.Textbox(label='What the patient said (Yoruba, as heard by speech recognition)',
+                                                interactive=False)
+                    glossary_phrase_out = gr.Textbox(
+                        label='Correct Ekiti Yoruba spelling (from the glossary) - use this when documenting',
+                        interactive=False, buttons=['copy'],
+                        placeholder='Shown when the phrase matches the glossary')
                     with gr.Row():
                         english_out = gr.Textbox(label='English Symptom', interactive=False, scale=2)
                         confidence_out = gr.Textbox(label='Confidence', interactive=False, scale=1)
@@ -893,7 +911,8 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
         inputs=[audio_input, department_input, note_id_state, language_input, nurse_code_input,
                 whatsapp_input],
         outputs=[transcript_out, english_out, meaning_out, confidence_out, clinical_note_out,
-                 note_id_state, feedback_status, danger_out, generate_status, submit_btn],
+                 note_id_state, feedback_status, danger_out, generate_status, submit_btn,
+                 glossary_phrase_out],
     ).then(fn=None, js=SCROLL_TO_NOTE_JS)
 
     def send_suggestion(transcript, meaning, term, dept, note_id, language=DEFAULT_LANG):
