@@ -178,11 +178,34 @@ def call_groq(prompt: str, max_tokens: int = 1000) -> str:
     raise RuntimeError(f'AI service unavailable after 3 tries ({last_error}).')
 
 
+def collapse_repeats(text: str) -> str:
+    """Remove a phrase repeated back-to-back: 'a b c a b c' -> 'a b c'."""
+    words = normalize(text).split()
+    changed = True
+    while changed:
+        changed = False
+        for size in range(len(words) // 2, 0, -1):
+            for i in range(len(words) - 2 * size + 1):
+                if words[i:i + size] == words[i + size:i + 2 * size]:
+                    words = words[:i + size] + words[i + 2 * size:]
+                    changed = True
+                    break
+            if changed:
+                break
+    return ' '.join(words)
+
+
 def translate_detailed(text: str, lang: str = DEFAULT_LANG) -> dict:
     """Glossary first; if nothing matches, ask the LLM to translate.
     Returns english, meaning, confidence, match_id and fallback (the AI translation, if used)."""
     cfg = lang_cfg(lang)
     matches = fuzzy_match_glossary(text, lang=lang)
+    if not matches:
+        # Patients often repeat themselves ("ori mindo mi ori mindo mi"), which
+        # lowers the fuzzy score; retry with the repetition removed.
+        collapsed = collapse_repeats(text)
+        if collapsed != normalize(text):
+            matches = fuzzy_match_glossary(collapsed, lang=lang)
     if matches:
         m = matches[0]
         return {'english': m['english'], 'meaning': m['meaning'], 'confidence': m['ratio'],
