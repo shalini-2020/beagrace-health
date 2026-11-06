@@ -245,27 +245,48 @@ Every evaluator rates the **same** notes, made once from the **same** approved
 recordings, so results can be compared across nurses. Kept separate from pilot
 use: none of it is counted in the usage, feedback or Impact totals.
 
-1. **Scenarios.** The clinical lead writes standardised, simulated scenarios in
-   `eval_scenarios.json` and sets `"approved": true` once approved. Never use a
-   real patient encounter.
-2. **Recordings.** Consenting speakers record each scenario. Name files
-   `<scenario_id>__<speaker>.<ext>` (e.g. `ANC-01__S1.m4a`) and keep them in a
-   private folder such as `eval_recordings/` (git-ignored). Audio is never uploaded.
-3. **Generate the notes once**, on your computer (API keys in `.env`, and
-   `hf auth login` with write access): `python nurse_eval.py generate eval_recordings`.
-   The outputs, not the audio, are saved as a batch to the private dataset.
-4. **Evaluators** (codes in an `EVALUATOR_CODES` secret, e.g. `EV01`) answer the
-   same five questions for each note: meaning preserved, useful for handoff,
-   missing or misleading information, danger signs, and whether they would use
-   it. Question 1 counts only from evaluators who understand Ekiti Yoruba;
-   nurses assess clinical completeness, usefulness and safety.
-5. **Reference answers** are written by qualified Yoruba-speaking and clinical
-   reviewers in `eval_references.csv` (template: `eval_references_template.csv`)
-   without seeing any output. The file is git-ignored: keep it private.
-6. **Score:** `python nurse_eval.py score eval_references.csv` reports danger-sign
-   detection against the references (once per note), the evaluators' answers,
-   agreement between evaluators (Krippendorff's alpha) and
-   `eval_out/nurse_evaluation_results.csv` for term-level adjudication.
+**Before any nurse rates anything: lock the reference answers**
+
+1. Approved, simulated Ekiti Yoruba recordings (consenting speakers; never a real
+   patient encounter).
+2. An independent Yoruba reviewer writes the transcript and meaning of each.
+3. An independent clinical reviewer writes the clinical term, urgency and any
+   danger sign.
+4. Disagreements are resolved, and the answers are saved in `eval_references.csv`
+   (template: `eval_references_template.csv`) and **locked**: record the date and
+   a file hash (`certutil -hashfile eval_references.csv SHA256` on Windows) and do
+   not change them after nurse rating starts. Reviewers never see system output.
+   The file is git-ignored: keep it private.
+
+**Running the evaluation**
+
+1. **Scenarios.** The clinical lead writes standardised scenarios in
+   `eval_scenarios.json` and sets `"approved": true` once approved.
+2. **Recordings.** Name files `<scenario_id>__<speaker>.<ext>` (e.g.
+   `ANC-01__S1.m4a`) in a private folder such as `eval_recordings/` (git-ignored).
+   Speakers' consent must cover evaluators listening to the recordings.
+3. **Generate the notes once**, on your computer (API keys in `.env`,
+   `hf auth login` with write access):
+   `python nurse_eval.py generate eval_recordings --with-baseline`
+   This makes the BeaGrace + ClinGuard note and, with `--with-baseline`, an
+   LLM-only note from the same transcript (same LLM and note prompt, no glossary,
+   no rule-based danger check). Notes and recordings go to the **private**
+   dataset only. Each note gets a random label; its condition is stored for the
+   administrator and never shown to evaluators.
+4. **Evaluators** (codes in an `EVALUATOR_CODES` secret, e.g. `EV01`) see only the
+   scenario, the original recording and the note, never the transcript, glossary
+   match, confidence or condition. They answer the same five questions. Question 1
+   counts only from evaluators who understand Ekiti Yoruba; nurses assess clinical
+   completeness, usefulness and safety. Each evaluator sees the notes in their own
+   shuffled order, which spreads learning effects when a scenario appears in both
+   conditions.
+5. **Score:** `python nurse_eval.py score eval_references.csv` reports, per
+   condition, the notes against the locked references (counted once per note),
+   the evaluators' answers and agreement between evaluators (Krippendorff's alpha),
+   and writes the admin-only `eval_out/nurse_evaluation_results.csv`.
+
+Limitation: blinding is partial, because ClinGuard notes can carry the
+safety-check banner, which LLM-only notes never do.
 
 The 👍 / 👎 / 🤷 buttons in the Nurse tool remain the everyday pilot feedback.
 

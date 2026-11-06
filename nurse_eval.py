@@ -8,18 +8,20 @@ results can be compared across nurses and agreement between them can be measured
      entries with "approved": true are used. Reference answers are NOT stored here.
   2. Recordings: consenting speakers record each approved scenario. Name each file
      <scenario_id>.<ext> or <scenario_id>__<speaker code>.<ext> (e.g. ANC-01__S1.m4a)
-     and keep them in a private folder. They are never uploaded anywhere.
+     and keep them in a private folder (consent must cover evaluators listening).
   3. Generate notes once, on your own computer (needs the API keys in .env and
      `hf auth login` with write access to the private usage dataset):
-         python nurse_eval.py generate <recordings folder>
-     Each recording goes through the same pipeline nurses use. The outputs (transcript,
-     interpretation, note, versions and a fingerprint of the audio file, but not the
-     audio) are saved as one batch to the private dataset.
-  4. Evaluators (codes in the EVALUATOR_CODES secret, e.g. EV01) open the app's
-     Evaluation tab and answer the same five short questions for each note in the
-     latest batch. Each evaluator sees the notes in their own shuffled order and rates
-     each note once. Question 1 (meaning) only counts from evaluators who understand
-     Ekiti Yoruba; nurses assess clinical completeness, usefulness and safety.
+         python nurse_eval.py generate <recordings folder> [--with-baseline]
+     Each recording goes through the same pipeline nurses use; --with-baseline also
+     makes an LLM-only note from the same transcript. Notes and recordings are saved to
+     the PRIVATE dataset only. Each note has a random label; its condition is stored for
+     the administrator only.
+  4. Evaluators (codes in the EVALUATOR_CODES secret, e.g. EV01) open the Evaluation
+     tab. Blinded: they see the scenario, the original recording and the note, never the
+     transcript, glossary match, confidence or condition. They answer the same five
+     questions for each note, in their own shuffled order, once each. Question 1
+     (meaning) only counts from evaluators who understand Ekiti Yoruba; nurses assess
+     clinical completeness, usefulness and safety.
   5. Reference answers: qualified Yoruba-speaking and clinical reviewers write them in
      eval_references.csv (template: eval_references_template.csv) WITHOUT seeing any
      output. The file is git-ignored: keep it private.
@@ -107,7 +109,29 @@ def _recordings(folder: Path, scenarios: dict) -> list:
     return found
 
 
-def generate(folder: str, upload: bool = True) -> str:
+CONDITIONS = ('clinguard', 'llm_only')
+
+
+def _llm_only(app, transcript: str, lang: str) -> dict:
+    """Baseline: the same LLM and note prompt, but no ClinGuard glossary matching and no
+    rule-based danger check. Uses the same transcript, so speech recognition is held constant."""
+    cfg = app.lang_cfg(lang)
+    prompt = (f"Translate this {cfg['name']} speech ({cfg.get('dialect_note', 'local dialect')}, "
+              'transcribed by speech recognition, may contain errors) into plain English.\n'
+              'Reply with the English translation only, one short sentence. If it cannot be '
+              f"understood, reply exactly: UNCLEAR\n\n{cfg['name']}: {transcript}")
+    english = app.call_groq(prompt, max_tokens=400)
+    if english.strip().upper().startswith('UNCLEAR'):
+        english = 'Unclear - please ask the patient to repeat'
+    note = app.generate_clinical_note(english, '', lang)
+    return {'english': english, 'meaning': '', 'note': note, 'urgency': app.extract_urgency(note),
+            'danger_sign': None, 'danger_rule_ids': [], 'confidence': None, 'confidence_level': None,
+            'match_id': None, 'glossary_phrase': ''}
+
+
+def generate(folder: str, upload: bool = True, baseline: bool = False) -> str:
+    """Make one batch of notes from the approved recordings. baseline=True also makes an
+    LLM-only note from the same transcript, stored with condition 'llm_only' (admin only)."""
     import app   # the same pipeline nurses use
     scenarios = {s['scenario_id']: s for s in load_scenarios()}
     if not scenarios:
@@ -119,8 +143,11 @@ def generate(folder: str, upload: bool = True) -> str:
         return ''
     batch_id = datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')
     out_file = LOG_DIR / f'eval_outputs_{batch_id}.jsonl'
-    print(f'Batch {batch_id}: {len(recordings)} recordings')
-    made = 0
+    audio_dir = LOG_DIR / 'eval_audio'
+    audio_dir.mkdir(exist_ok=True)
+    print(f"Batch {batch_id}: {len(recordings)} recordings"
+          f"{' (ClinGuard and LLM-only)' if baseline else ''}")
+    made, audio_files = 0, []
     for path, scenario_id, speaker in recordings:
         sc = scenarios[scenario_id]
         details = {}
@@ -129,30 +156,63 @@ def generate(folder: str, upload: bool = True) -> str:
         if not details:
             print(f'  {path.name}: NO NOTE (no speech or an error) - check the recording')
             continue
-        record = {
-            'output_id': uuid.uuid4().hex[:12], 'batch_id': batch_id,
-            'time_utc': datetime.now(timezone.utc).isoformat(timespec='seconds'),
-            'scenario_id': scenario_id, 'scenario_version': scenario_version(sc),
-            'speaker': speaker,
-            'recording_sha256': hashlib.sha256(path.read_bytes()).hexdigest()[:16],
-            'department': sc.get('department'), 'language': app.DEFAULT_LANG, **details,
-        }
-        with out_file.open('a', encoding='utf-8') as f:
-            f.write(json.dumps(record, ensure_ascii=False) + '\n')
-        made += 1
-        print(f"  {path.name}: {details.get('english')} ({details.get('confidence_level')})")
+        sha = hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+        audio_name = f'{sha}{path.suffix.lower()}'   # no scenario id in the name
+        (audio_dir / audio_name).write_bytes(path.read_bytes())
+        audio_files.append(audio_dir / audio_name)
+        common = {'batch_id': batch_id, 'scenario_id': scenario_id,
+                  'scenario_version': scenario_version(sc), 'speaker': speaker,
+                  'recording_sha256': sha, 'audio_file': audio_name,
+                  'department': sc.get('department'), 'language': app.DEFAULT_LANG}
+        versions = {k: details.get(k) for k in ('app_version', 'code_fingerprint', 'clinguard_version',
+                                                'glossary_version', 'rules_version', 'speech_model')}
+        outputs = [{**common, **details, 'condition': 'clinguard'}]
+        if baseline:
+            outputs.append({**common, **versions, 'transcript': details.get('transcript'),
+                            **_llm_only(app, details.get('transcript', ''), app.DEFAULT_LANG),
+                            'condition': 'llm_only'})
+        for o in outputs:
+            o['output_id'] = uuid.uuid4().hex[:12]   # random label: reveals nothing about the condition
+            o['time_utc'] = datetime.now(timezone.utc).isoformat(timespec='seconds')
+            with out_file.open('a', encoding='utf-8') as f:
+                f.write(json.dumps(o, ensure_ascii=False) + '\n')
+            made += 1
+        print(f"  {path.name}: {details.get('english')} ({details.get('confidence_level')})"
+              f"{' + LLM-only note' if baseline else ''}")
     print(f'\n{made} notes saved to {out_file}')
     if made and upload:
         try:
-            from huggingface_hub import HfApi
-            HfApi().upload_file(path_or_fileobj=str(out_file), path_in_repo=f'logs/{out_file.name}',
-                                repo_id=LOG_REPO, repo_type='dataset',
-                                commit_message=f'Evaluation batch {batch_id}')
-            print(f'Uploaded to the private dataset {LOG_REPO}. Evaluators can start rating.')
+            from huggingface_hub import CommitOperationAdd, HfApi
+            ops = [CommitOperationAdd(path_in_repo=f'logs/{out_file.name}', path_or_fileobj=str(out_file))]
+            ops += [CommitOperationAdd(path_in_repo=f'eval_audio/{f.name}', path_or_fileobj=str(f))
+                    for f in audio_files]
+            HfApi().create_commit(repo_id=LOG_REPO, repo_type='dataset', operations=ops,
+                                  commit_message=f'Evaluation batch {batch_id}')
+            print(f'Uploaded notes and recordings to the PRIVATE dataset {LOG_REPO}. '
+                  'Evaluators can start rating.')
         except Exception as e:
-            print(f'Could not upload ({e}). Run `hf auth login` with a write token, then upload '
-                  f'{out_file} to {LOG_REPO} under logs/.')
+            print(f'Could not upload ({e}). Run `hf auth login` with a write token and try again.')
     return batch_id
+
+
+def audio_for(output: dict):
+    """Local path of the approved recording for this note, or None. On the Space it is
+    fetched from the private dataset; it is never part of the public repo."""
+    name = (output or {}).get('audio_file')
+    if not name:
+        return None
+    local = LOG_DIR / 'eval_audio' / name
+    if local.exists():
+        return str(local)
+    import os
+    if os.environ.get('HF_TOKEN'):
+        try:
+            from huggingface_hub import hf_hub_download
+            return hf_hub_download(LOG_REPO, f'eval_audio/{name}', repo_type='dataset',
+                                   token=os.environ['HF_TOKEN'])
+        except Exception as e:
+            print(f'[evaluation] could not fetch recording: {e}')
+    return None
 
 
 # ---------------------------------------------------------------- rating (Evaluation tab)
@@ -197,8 +257,8 @@ def save_evaluation(evaluator_id: str, reads_yoruba: bool, output: dict, answers
         'evaluation_id': evaluation_id, 'evaluator_id': evaluator_id,
         'evaluator_reads_yoruba': bool(reads_yoruba),
         # which note was rated (the full output stays in its eval_outputs record)
-        **{k: output.get(k) for k in ('output_id', 'batch_id', 'scenario_id', 'scenario_version',
-                                      'speaker', 'english', 'confidence_level', 'urgency',
+        **{k: output.get(k) for k in ('output_id', 'batch_id', 'condition', 'scenario_id',
+                                      'scenario_version', 'speaker', 'english', 'confidence_level', 'urgency',
                                       'danger_sign', 'app_version', 'code_fingerprint',
                                       'clinguard_version', 'glossary_version', 'rules_version')},
         **clean,
@@ -209,7 +269,7 @@ def save_evaluation(evaluator_id: str, reads_yoruba: bool, output: dict, answers
 
 def responses_text(evaluator_id: str, output: dict, answers: dict, reads_yoruba: bool) -> str:
     """Plain-text copy of one evaluator's answers, for their own records."""
-    lines = [f"Evaluator {evaluator_id} · scenario {output.get('scenario_id')} · note {output.get('output_id')}"]
+    lines = [f"Evaluator {evaluator_id} · note {output.get('output_id')}"]
     for key, question, options in QUESTIONS:
         value = answers.get(key) if (key != 'meaning' or reads_yoruba) else UNABLE
         label = next((l for l, v in options if v == value), '-')
@@ -268,13 +328,32 @@ def score(references_path: str, batch_id: str = None) -> None:
     print(f'Batch {batch_id}: {len(outputs)} notes, {len(evals)} assessments by '
           f"{len({e['evaluator_id'] for e in evals})} evaluators "
           f"({len({e['evaluator_id'] for e in evals if e.get('evaluator_reads_yoruba')})} understand Ekiti Yoruba)")
+    conditions = sorted({o.get('condition') or 'clinguard' for o in outputs.values()},
+                        key=lambda c: CONDITIONS.index(c) if c in CONDITIONS else 99)
+    for condition in conditions:
+        outs = {k: o for k, o in outputs.items() if (o.get('condition') or 'clinguard') == condition}
+        evs = [e for e in evals if e['output_id'] in outs]
+        _report(condition, outs, evs, refs)
+    if len(conditions) > 1:
+        print('\nNote: blinding is partial. ClinGuard notes can carry the safety-check banner, '
+              'which the LLM-only notes never do.')
+    _write_results(outputs, evals, refs)
 
-    # 1. The app's output against independent references: one count per note
+
+def _report(condition: str, outputs: dict, evals: list, refs: dict) -> None:
+    title = {'clinguard': 'BeaGrace with ClinGuard', 'llm_only': 'LLM only (no ClinGuard)'}.get(condition, condition)
+    print(f'\n=== {title}: {len(outputs)} notes, {len(evals)} assessments ===')
+
+    # 1. Output against independent references: one count per note
     danger = [o for o in outputs.values() if _yes(refs[o['scenario_id']].get('reference_danger'))]
     safe = [o for o in outputs.values() if not _yes(refs[o['scenario_id']].get('reference_danger'))]
-    print('\nApp output against independent reference answers (one count per note):')
-    print(f"  Danger-sign detection (recall):    {_wilson(sum(1 for o in danger if o.get('danger_sign')), len(danger))}")
-    print(f"  False danger alerts:               {_wilson(sum(1 for o in safe if o.get('danger_sign')), len(safe))}")
+    high = lambda o: (o.get('urgency') or '').lower() == 'high'
+    print('Output against independent reference answers (one count per note):')
+    print(f"  Danger sign -> note urgency High:  {_wilson(sum(1 for o in danger if high(o)), len(danger))}")
+    print(f"  No danger sign -> urgency High:    {_wilson(sum(1 for o in safe if high(o)), len(safe))}")
+    if condition == 'clinguard':
+        print(f"  Rule-based alert on danger signs:  {_wilson(sum(1 for o in danger if o.get('danger_sign')), len(danger))}")
+        print(f"  Rule-based false alerts:           {_wilson(sum(1 for o in safe if o.get('danger_sign')), len(safe))}")
     ref_urg = [o for o in outputs.values() if refs[o['scenario_id']].get('reference_urgency', '').strip()]
     if ref_urg:
         same = sum(1 for o in ref_urg if (o.get('urgency') or '').lower()
@@ -286,7 +365,7 @@ def score(references_path: str, batch_id: str = None) -> None:
         rated = [e for e in rows if e.get(key) and e[key] != UNABLE]
         return _wilson(sum(1 for e in rated if e[key] in good), len(rated))
     yoruba = [e for e in evals if e.get('evaluator_reads_yoruba')]
-    print('\nEvaluator answers (one count per assessment; "unable to assess" left out):')
+    print('Evaluator answers (one count per assessment; "unable to assess" left out):')
     print(f"  Q1 Meaning accurate (Yoruba-speaking evaluators only): {share('meaning', {'accurate'}, yoruba)}")
     print(f"  Q2 Useful for handoff:             {share('usefulness', {'useful'}, evals)}")
     print(f"  Q3 No important issues:            {share('issues', {'none', 'minor'}, evals)}")
@@ -299,7 +378,7 @@ def score(references_path: str, batch_id: str = None) -> None:
     print(f"     Would use, incl. after corrections: {share('would_use', {'yes', 'after_corrections'}, evals)}")
 
     # 3. Agreement between evaluators on the same notes
-    print("\nAgreement between evaluators (Krippendorff's alpha, nominal; 1 = perfect, 0 = chance):")
+    print("Agreement between evaluators (Krippendorff's alpha, nominal; 1 = perfect, 0 = chance):")
     for key, _, _ in QUESTIONS:
         units = defaultdict(list)
         for e in (yoruba if key == 'meaning' else evals):
@@ -309,17 +388,22 @@ def score(references_path: str, batch_id: str = None) -> None:
         multi = sum(1 for v in units.values() if len(v) >= 2)
         print(f"  {key:<14} {'n/a' if alpha is None else f'{alpha:.2f}'} ({multi} notes rated by 2+ evaluators)")
 
+
+def _write_results(outputs: dict, evals: list, refs: dict) -> None:
     rows = []
     for e in evals:
         o, ref = outputs[e['output_id']], refs[outputs[e['output_id']]['scenario_id']]
         rows.append({
-            'evaluation_id': e.get('evaluation_id'), 'evaluator_id': e.get('evaluator_id'),
+            'evaluation_id': e.get('evaluation_id'), 'time_utc': e.get('time_utc'),
+            'evaluator_id': e.get('evaluator_id'),
             'evaluator_reads_yoruba': 'yes' if e.get('evaluator_reads_yoruba') else 'no',
-            'output_id': o['output_id'], 'scenario_id': o['scenario_id'],
-            'scenario_version': o.get('scenario_version'), 'speaker': o.get('speaker'),
+            'output_id': o['output_id'], 'condition': o.get('condition') or 'clinguard',
+            'scenario_id': o['scenario_id'], 'scenario_version': o.get('scenario_version'),
+            'speaker': o.get('speaker'), 'recording_sha256': o.get('recording_sha256'),
             'transcript': o.get('transcript'), 'app_symptom': o.get('english'),
-            'confidence_level': o.get('confidence_level'), 'app_urgency': o.get('urgency'),
-            'app_danger': 'yes' if o.get('danger_sign') else 'no',
+            'glossary_phrase': o.get('glossary_phrase'), 'confidence_level': o.get('confidence_level'),
+            'app_urgency': o.get('urgency'),
+            'rule_alert': '' if o.get('danger_sign') is None else ('yes' if o.get('danger_sign') else 'no'),
             'reference_meaning': ref.get('reference_meaning'), 'reference_term': ref.get('reference_term'),
             'reference_danger': 'yes' if _yes(ref.get('reference_danger')) else 'no',
             'reference_urgency': ref.get('reference_urgency', ''),
@@ -338,15 +422,15 @@ def score(references_path: str, batch_id: str = None) -> None:
             w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
             w.writeheader()
             w.writerows(rows)
-        print(f'\nSaved {path}. A qualified reviewer should fill in term_matches_reference (yes/no) '
-              'by comparing app_symptom with reference_term.')
+        print(f'\nSaved {path} (admin only: it shows each note\'s condition). A qualified reviewer '
+              'should fill in term_matches_reference (yes/no) by comparing app_symptom with reference_term.')
 
 
 if __name__ == '__main__':
-    if len(sys.argv) == 3 and sys.argv[1] == 'generate':
-        generate(sys.argv[2])
+    if len(sys.argv) in (3, 4) and sys.argv[1] == 'generate':
+        generate(sys.argv[2], baseline='--with-baseline' in sys.argv[3:])
     elif len(sys.argv) in (3, 4) and sys.argv[1] == 'score':
         score(sys.argv[2], sys.argv[3] if len(sys.argv) == 4 else None)
     else:
-        print('Usage:\n  python nurse_eval.py generate <recordings folder>\n'
+        print('Usage:\n  python nurse_eval.py generate <recordings folder> [--with-baseline]\n'
               '  python nurse_eval.py score eval_references.csv [batch_id]')

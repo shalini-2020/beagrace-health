@@ -215,7 +215,7 @@ def build_report(stats: dict) -> str:
         ('Interpretation path', 'Each note has exactly one path, set by the best glossary match for '
                                 'the whole transcript: glossary match (score >= 90%), partial match '
                                 '(75-89%), AI fallback (no glossary phrase scored 75% or more, so the AI '
-                                'translated the whole transcript), or not understood (the AI could not '
+                                'translated the whole transcript), or AI fallback: not understood (the AI fallback was tried but could not '
                                 'translate it). A note is never counted in two paths, so the shares add '
                                 'up to 100%. When a glossary phrase matches, the AI translation is not '
                                 'used for the rest of what was said.'),

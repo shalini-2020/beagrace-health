@@ -2,8 +2,10 @@
 Public Impact page: live totals from the anonymous usage log.
 
 Only real pilot use is counted:
-  - records on or after PILOT_START (default 2026-10-27, can be changed with
-    a PILOT_START variable in the Space settings, format YYYY-MM-DD)
+  - records on or after PILOT_START, in UTC: the start of real nurse use,
+    2026-11-06T19:00 (everything before was testing; see CHANGELOG.md). It can be
+    overridden with a PILOT_START variable in the Space settings (YYYY-MM-DD or
+    YYYY-MM-DDTHH:MM)
   - the 'Testing (not real use)' department is always left out
 Only totals are shown. No individual notes, phrases or comments.
 
@@ -20,7 +22,7 @@ from datetime import datetime, timezone
 
 from usage_log import load_records
 
-PILOT_START = os.environ.get('PILOT_START', '2026-10-27')
+PILOT_START = os.environ.get('PILOT_START', '2026-11-06T19:00')
 TEST_DEPARTMENT = 'Testing (not real use)'
 _CACHE = {'at': 0.0, 'stats': None}
 CACHE_SECONDS = 600
@@ -31,8 +33,8 @@ MIN_RATED_FOR_PCT = 20
 PATHWAYS = [
     ('high', 'Glossary match (≥90%)'),
     ('partial', 'Partial glossary match'),
-    ('low', 'AI fallback translation'),
-    ('none', 'Not understood'),
+    ('low', 'AI fallback: translated'),
+    ('none', 'AI fallback: not understood'),
 ]
 
 
@@ -120,7 +122,7 @@ def compute_stats(glossary_size: int, fresh: bool = False, until: str = None) ->
         'fingerprint': fingerprint,
         'counted_until': until,
         'feedback_records': len(feedback),
-        'period_start': PILOT_START,
+        'period_start': PILOT_START.replace('T', ' '),
         'period_end': until[:10],
         'attempts': len(usage),
         'notes': len(notes),
@@ -286,7 +288,8 @@ def impact_html(stats: dict) -> str:
           <li><b>Interpretation path</b>: each note has exactly one path, set by the best glossary
               match for the whole transcript: <b>glossary match</b> (score ≥90%), <b>partial match</b>
               (75-89%), <b>AI fallback</b> (no glossary phrase scored 75% or more, so the AI translated
-              the whole transcript), or <b>not understood</b> (the AI could not translate it). A note is
+              the whole transcript), or <b>AI fallback: not understood</b> (the AI fallback was tried but could not
+              translate it, so the nurse was asked to repeat). A note is
               never counted in two paths, so the shares add up to 100%. When a glossary phrase matches,
               the AI translation is not used for the rest of what was said.</li>
           <li><b>Danger-sign alert</b>: the rule-based safety check (no AI) flagged the note for escalation.</li>

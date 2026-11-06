@@ -29,7 +29,7 @@ import nurse_eval
 GLOSSARY_FILE = Path('glossary.json')
 
 # Bump APP_VERSION with each release so every log record shows which version made it.
-APP_VERSION = os.environ.get('APP_VERSION', '2026.11.06')
+APP_VERSION = os.environ.get('APP_VERSION', '2026.11.06.2')
 
 
 def _code_fingerprint() -> str:
@@ -944,14 +944,14 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
                 eval_reads_yoruba = gr.Checkbox(label='I understand Ekiti Yoruba', value=False, scale=1)
                 eval_next_btn = gr.Button('▶ Start / next note', variant='primary', scale=1)
             eval_progress = gr.HTML('', elem_classes=['slot'])
+            # Blinded: nurses see the scenario, the original recording and the note only.
+            # How the note was made (transcript, glossary match, confidence, condition) is
+            # kept for the evaluation administrator and never shown here.
             with gr.Row(equal_height=False):
                 with gr.Column(scale=1):
                     eval_case = gr.HTML('', elem_classes=['slot'])
-                    eval_transcript = gr.Textbox(label='Heard by speech recognition', interactive=False)
-                    eval_phrase = gr.Textbox(label='Glossary phrase matched', interactive=False)
-                    with gr.Row():
-                        eval_symptom = gr.Textbox(label='English symptom', interactive=False, scale=2)
-                        eval_conf = gr.Textbox(label='Confidence', interactive=False, scale=1)
+                    eval_recording = gr.Audio(label='Original recording', type='filepath',
+                                              interactive=False, buttons=[])   # no download / share
                 with gr.Column(scale=1):
                     eval_note = gr.Textbox(label='Clinical handoff note', lines=12, interactive=False)
             gr.HTML('<div class="panel-label" style="margin-top:6px;">📝 Your assessment</div>',
@@ -1114,7 +1114,7 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
     def next_note(code, reads_yoruba):
         code = (code or '').strip().upper()
         n_q = len(nurse_eval.QUESTIONS)
-        hold = (gr.update(),) * 6 + (gr.update(),) * n_q + (gr.update(), gr.update(visible=False))
+        hold = (gr.update(),) * 3 + (gr.update(),) * n_q + (gr.update(), gr.update(visible=False))
         problem = _check_evaluator(code)
         if problem:
             return (status_html('warn', problem), None, *hold)
@@ -1124,13 +1124,10 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
         if output is None:
             return (status_html('success', f'<b>All {total} notes rated.</b> Thank you!'), None, *hold)
         sc = nurse_eval.scenario_by_id(output.get('scenario_id')) or {}
-        case = status_html('info', f"<b>Scenario {output.get('scenario_id')}</b> · {sc.get('department', '')}<br>"
+        case = status_html('info', f"<b>{sc.get('department', '')}</b><br>"
                                    f"<b>Situation:</b> {sc.get('situation', '')}<br>"
-                                   f"<b>Speaker said (script):</b> {sc.get('phrase', '')}")
-        conf = {'high': 'Glossary match', 'partial': 'Partial glossary match',
-                'low': 'AI fallback - not in glossary', 'none': 'Not understood'}.get(output.get('confidence_level'), '')
-        shown = (case, output.get('transcript', ''), output.get('glossary_phrase', ''),
-                 output.get('english', ''), conf, output.get('note', ''))
+                                   f"<b>Speaker said (approved script):</b> {sc.get('phrase', '')}")
+        shown = (case, nurse_eval.audio_for(output), output.get('note', ''))
         answers = (_q1_update(reads_yoruba, reset=True),) + (gr.update(value=None),) * (n_q - 1)
         return (status_html('info', f'Note {done + 1} of {total}'), output, *shown, *answers,
                 gr.update(value=''), gr.update(value='', visible=False))
@@ -1159,8 +1156,8 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
     eval_reads_yoruba.change(lambda r: _q1_update(r, reset=True), inputs=[eval_reads_yoruba],
                              outputs=[eval_questions[0]])
     eval_next_btn.click(next_note, inputs=[eval_code, eval_reads_yoruba],
-                        outputs=[eval_progress, eval_output_state, eval_case, eval_transcript, eval_phrase,
-                                 eval_symptom, eval_conf, eval_note, *eval_questions, eval_comment, eval_copy])
+                        outputs=[eval_progress, eval_output_state, eval_case, eval_recording, eval_note,
+                                 *eval_questions, eval_comment, eval_copy])
     eval_submit_btn.click(submit_assessment,
                           inputs=[eval_code, eval_reads_yoruba, eval_output_state, *eval_questions, eval_comment],
                           outputs=[eval_status, eval_output_state, eval_comment, eval_copy])
