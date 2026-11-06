@@ -618,7 +618,7 @@ body, .gradio-container {
 .impact-head { margin-bottom: 12px; }
 .impact-title { font-family: 'DM Serif Display', serif; font-size: 1.5rem; color: var(--green-deep); }
 .impact-sub { font-size: 0.85rem; color: var(--text-light); margin-top: 2px; }
-.impact-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.impact-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
 .impact-card {
     background: var(--warm-white); border-radius: var(--radius); padding: 16px 18px;
     box-shadow: var(--shadow); border-top: 4px solid var(--green-bright);
@@ -629,6 +629,19 @@ body, .gradio-container {
 .impact-depts { margin-top: 14px; background: var(--green-pale); border-radius: 10px; padding: 12px 16px;
                 font-size: 0.88rem; color: var(--text-dark); }
 .impact-depts ul { margin: 6px 0 0 18px; padding: 0; }
+.impact-section { margin-top: 22px; }
+.impact-section-title { font-family: 'DM Serif Display', serif; font-size: 1.2rem; color: var(--green-deep);
+                        border-bottom: 2px solid var(--green-pale); padding-bottom: 4px; margin-bottom: 4px; }
+.impact-section .impact-sub { margin-bottom: 10px; }
+.impact-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; background: var(--warm-white);
+                border-radius: 10px; overflow: hidden; box-shadow: var(--shadow); }
+.impact-table th, .impact-table td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--green-pale); }
+.impact-table th { background: var(--green-pale); color: var(--text-dark); font-weight: 600; }
+.impact-pending { background: var(--warm-white); border-left: 4px solid var(--text-light); border-radius: 10px;
+                  padding: 12px 16px; font-size: 0.9rem; color: var(--text-dark); box-shadow: var(--shadow); }
+.impact-defs { margin-top: 18px; font-size: 0.82rem; color: var(--text-dark); }
+.impact-defs summary { cursor: pointer; font-weight: 600; color: var(--green-mid); }
+.impact-defs ul { margin: 8px 0 0 18px; padding: 0; }
 
 /* Status message cards */
 .status-card {
