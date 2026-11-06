@@ -436,6 +436,7 @@ def process_audio(audio_file, department='Not specified', language=DEFAULT_LANG,
 
 CSS = """
 @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&display=swap');
+#whatsapp-upload { margin-top: 12px; }
 
 :root {
     --green-deep: #1a3a2a;
@@ -735,7 +736,8 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
                         file_types=WHATSAPP_FILE_TYPES,
                         file_count='single',
                         type='filepath',
-                        height=90,
+                        height=150,
+                        elem_id='whatsapp-upload',
                     )
                     language_input = gr.Dropdown(
                         choices=[(cfg['label'], code) for code, cfg in LANGUAGES.items()],
