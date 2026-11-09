@@ -1,2 +1,2 @@
-scenario_id,reference_meaning,reference_term,reference_danger,reference_urgency,labelled_by,notes
-EXAMPLE-1,<plain English meaning>,<clinical term>,yes | no,Low | Medium | High,<reviewer codes>,Rows starting EXAMPLE are ignored. Written by qualified reviewers WITHOUT seeing any system output. Keep the filled-in file private (eval_references.csv is git-ignored).
+scenario_id,reference_meaning,reference_term,reference_danger,reference_danger_sign,reference_urgency,labelled_by,notes
+EXAMPLE-1,<plain English meaning>,<clinical term>,yes | no,<name the danger sign if yes>,Low | Medium | High,<reviewer codes>,Rows starting EXAMPLE are ignored. Written by qualified reviewers WITHOUT seeing any system output. Keep the filled-in file private (eval_references.csv is git-ignored).

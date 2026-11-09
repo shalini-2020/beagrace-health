@@ -29,7 +29,7 @@ import nurse_eval
 GLOSSARY_FILE = Path('glossary.json')
 
 # Bump APP_VERSION with each release so every log record shows which version made it.
-APP_VERSION = os.environ.get('APP_VERSION', '2026.11.06.3')
+APP_VERSION = os.environ.get('APP_VERSION', '2026.11.09')
 
 
 def _code_fingerprint() -> str:
@@ -369,7 +369,7 @@ def reviewer_title() -> str:
 
 
 DEPARTMENTS = ['Not specified', 'General outpatient (GOPD)', 'Antenatal', 'Postnatal',
-               'Accident & Emergency', 'Medical/Surgical ward', 'Other', TEST_DEPARTMENT]
+               'Accident & Emergency', 'Medical/Surgical Ward', 'Other', TEST_DEPARTMENT]
 
 
 def extract_urgency(note: str):
@@ -984,11 +984,20 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
                     eval_note = gr.Textbox(label='Clinical handoff note', lines=12, interactive=False)
             gr.HTML('<div class="panel-label" style="margin-top:6px;">📝 Your assessment</div>',
                     elem_classes=['slot'])
-            eval_questions = [gr.Radio(options, label=question) for _, question, options in nurse_eval.QUESTIONS]
-            gr.HTML('<div class="impact-note">Question 1 is answered only by evaluators who understand '
-                    'Ekiti Yoruba. Others: it is recorded as "Unable to assess".</div>', elem_classes=['slot'])
-            eval_comment = gr.Textbox(label='Comments (optional). No names or patient details.', lines=2)
-            eval_submit_btn = gr.Button('✅ Submit assessment', variant='primary')
+            with gr.Column(visible=True) as eval_rate_col:
+                eval_questions = [gr.Radio(options, label=question) for _, question, options in nurse_eval.QUESTIONS]
+                gr.HTML('<div class="impact-note">Question 1 is answered only by evaluators who understand '
+                        'Ekiti Yoruba. Others: it is recorded as "Unable to assess".</div>', elem_classes=['slot'])
+                eval_comment = gr.Textbox(label='Comments (optional). No names or patient details.', lines=2)
+                eval_submit_btn = gr.Button('✅ Submit assessment', variant='primary')
+            # Debrief: only after ALL notes are rated, so knowing that two systems were compared
+            # cannot influence any rating. Measures whether the blinding held.
+            with gr.Column(visible=False) as eval_debrief_col:
+                gr.HTML('<div class="impact-pending"><b>Last step: debrief.</b> The notes you rated came '
+                        'from two different systems. For each note, which do you think made it? '
+                        'Your ratings are already saved and will not change.</div>', elem_classes=['slot'])
+                eval_guess = gr.Radio(nurse_eval.GUESS_CHOICES, label='Which kind of system made this note?')
+                eval_guess_btn = gr.Button('✅ Submit answer', variant='primary')
             eval_status = gr.HTML('', elem_classes=['slot'])
             eval_copy = gr.Textbox(label='Your responses (copy for your records)', lines=7,
                                    interactive=False, buttons=['copy'], visible=False)
@@ -1143,26 +1152,52 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
             return gr.update(interactive=True, value=None) if reset else gr.update(interactive=True)
         return gr.update(interactive=False, value=nurse_eval.UNABLE)
 
+    def _case_html(output, prefix=''):
+        sc = nurse_eval.scenario_by_id(output.get('scenario_id')) or {}
+        return status_html('info', f"{prefix}<b>{sc.get('department', '')}</b><br>"
+                                   f"<b>Situation:</b> {sc.get('situation', '')}<br>"
+                                   f"<b>Speaker said (approved script):</b> {sc.get('phrase', '')}")
+
     def next_note(code, reads_yoruba):
+        """Outputs: progress, state, case, recording, note, *questions, comment, copy,
+        rating column, debrief column, guess."""
         code = (code or '').strip().upper()
         n_q = len(nurse_eval.QUESTIONS)
         hold = (gr.update(),) * 3 + (gr.update(),) * n_q + (gr.update(), gr.update(visible=False))
+        show_rating = (gr.update(visible=True), gr.update(visible=False), gr.update(value=None))
         problem = _check_evaluator(code)
         if problem:
-            return (status_html('warn', problem), None, *hold)
+            return (status_html('warn', problem), None, *hold, *show_rating)
         output, done, total = nurse_eval.next_for(code)
         if not total:
-            return (status_html('info', 'No notes are ready for evaluation yet.'), None, *hold)
+            return (status_html('info', 'No notes are ready for evaluation yet.'), None, *hold, *show_rating)
         if output is None:
-            return (status_html('success', f'<b>All {total} notes rated.</b> Thank you!'), None, *hold)
-        sc = nurse_eval.scenario_by_id(output.get('scenario_id')) or {}
-        case = status_html('info', f"<b>{sc.get('department', '')}</b><br>"
-                                   f"<b>Situation:</b> {sc.get('situation', '')}<br>"
-                                   f"<b>Speaker said (approved script):</b> {sc.get('phrase', '')}")
-        shown = (case, nurse_eval.audio_for(output), output.get('note', ''))
+            item, d_done, d_total = nurse_eval.next_debrief_for(code)
+            if item is None:
+                return (status_html('success', f'<b>All {total} notes rated'
+                                               f"{' and the debrief done' if d_total else ''}.</b> Thank you!"),
+                        None, *hold, *show_rating)
+            shown = (_case_html(item, f'<b>Debrief {d_done + 1} of {d_total}</b><br>'),
+                     nurse_eval.audio_for(item), item.get('note', ''))
+            return (status_html('info', f'All {total} notes rated. Debrief {d_done + 1} of {d_total}.'),
+                    {'debrief': item}, *shown, *(gr.update(),) * n_q, gr.update(), gr.update(visible=False),
+                    gr.update(visible=False), gr.update(visible=True), gr.update(value=None))
+        shown = (_case_html(output), nurse_eval.audio_for(output), output.get('note', ''))
         answers = (_q1_update(reads_yoruba, reset=True),) + (gr.update(value=None),) * (n_q - 1)
         return (status_html('info', f'Note {done + 1} of {total}'), output, *shown, *answers,
-                gr.update(value=''), gr.update(value='', visible=False))
+                gr.update(value=''), gr.update(value='', visible=False), *show_rating)
+
+    def submit_debrief(code, state, guess):
+        code = (code or '').strip().upper()
+        problem = _check_evaluator(code)
+        if problem:
+            return status_html('warn', problem), state
+        if not state or 'debrief' not in state:
+            return status_html('warn', 'Tap <b>Start / next note</b> first.'), state
+        if not guess:
+            return status_html('warn', 'Please choose an answer.'), state
+        nurse_eval.save_debrief(code, state['debrief'], guess)
+        return status_html('success', '<b>Saved.</b> Tap <b>Start / next note</b> to continue.'), None
 
     def submit_assessment(code, reads_yoruba, output, *rest):
         answers_in, comment = rest[:-1], rest[-1]
@@ -1171,7 +1206,7 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
         problem = _check_evaluator(code)
         if problem:
             return (status_html('warn', problem), output, *keep)
-        if not output:
+        if not output or 'debrief' in output:
             return (status_html('warn', 'Tap <b>Start / next note</b> first.'), output, *keep)
         answers = dict(zip(nurse_eval.QUESTION_KEYS, answers_in))
         needed = [k for k in nurse_eval.QUESTION_KEYS if not (k == 'meaning' and not reads_yoruba)]
@@ -1189,7 +1224,10 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
                              outputs=[eval_questions[0]])
     eval_next_btn.click(next_note, inputs=[eval_code, eval_reads_yoruba],
                         outputs=[eval_progress, eval_output_state, eval_case, eval_recording, eval_note,
-                                 *eval_questions, eval_comment, eval_copy])
+                                 *eval_questions, eval_comment, eval_copy, eval_rate_col, eval_debrief_col,
+                                 eval_guess])
+    eval_guess_btn.click(submit_debrief, inputs=[eval_code, eval_output_state, eval_guess],
+                         outputs=[eval_status, eval_output_state])
     eval_submit_btn.click(submit_assessment,
                           inputs=[eval_code, eval_reads_yoruba, eval_output_state, *eval_questions, eval_comment],
                           outputs=[eval_status, eval_output_state, eval_comment, eval_copy])

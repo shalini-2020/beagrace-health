@@ -21,6 +21,24 @@ can be tied to the code that produced them.
   `clinical`, from the `PILOT_MODE` setting). Change `PILOT_MODE` to `clinical` only when
   real patient use begins, and record the date here.
 
+## 2026-11-09
+
+- Release **2026.11.06.3** deployed (08:56 EST): required department, nurse and facility
+  codes, remembered facility code, copy button, simulated-use labels.
+- Release **2026.11.09**:
+  - All Python packages pinned to the versions the Space installed on 2026-11-09, so a
+    rebuild can no longer change them (the cause of the 2 Nov audio failure).
+  - Nurse evaluation: the two versions of a scenario are never shown one after the other;
+    a debrief after all ratings asks which kind of system made each note (blinding check);
+    danger-sign detection, false danger signals and meaning accuracy are judged by the
+    reference reviewers on a sheet without the system condition, separately from urgency;
+    paired ClinGuard vs LLM-only comparison (exact McNemar); `nurse_eval.py show` admin
+    preview. Reference template gains `reference_danger_sign`.
+  - Phrase suggestions are refused when the "English meaning" or clinical term is the
+    Yoruba copied again.
+  - `pilot_check.py`: one-command pilot health check.
+  - Department name "Medical/Surgical Ward" now matches the glossary.
+
 ## 2026-11-06
 
 - **14:10-14:19 UTC** - 14 attempts failed at the transcription stage (a pilot tester

@@ -268,25 +268,33 @@ use: none of it is counted in the usage, feedback or Impact totals.
 3. **Generate the notes once**, on your computer (API keys in `.env`,
    `hf auth login` with write access):
    `python nurse_eval.py generate eval_recordings --with-baseline`
-   This makes the BeaGrace + ClinGuard note and, with `--with-baseline`, an
-   LLM-only note from the same transcript (same LLM and note prompt, no glossary,
-   no rule-based danger check). Notes and recordings go to the **private**
-   dataset only. Each note gets a random label; its condition is stored for the
-   administrator and never shown to evaluators.
-4. **Evaluators** (codes in an `EVALUATOR_CODES` secret, e.g. `EV01`) see only the
-   scenario, the original recording and the note, never the transcript, glossary
-   match, confidence or condition. They answer the same five questions. Question 1
-   counts only from evaluators who understand Ekiti Yoruba; nurses assess clinical
-   completeness, usefulness and safety. Each evaluator sees the notes in their own
-   shuffled order, which spreads learning effects when a scenario appears in both
-   conditions.
-5. **Score:** `python nurse_eval.py score eval_references.csv` reports, per
-   condition, the notes against the locked references (counted once per note),
-   the evaluators' answers and agreement between evaluators (Krippendorff's alpha),
-   and writes the admin-only `eval_out/nurse_evaluation_results.csv`.
+   This makes the BeaGrace + ClinGuard note and an LLM-only note from the same
+   transcript (same LLM and note prompt, no glossary, no rule-based danger check).
+   Notes and recordings go to the **private** dataset only. Each note gets a random
+   label; its condition is stored for the administrator only.
+4. **Check them (admin only):** `python nurse_eval.py show` prints each recording's
+   notes side by side with their condition. Never share this.
+5. **Evaluators** (codes in an `EVALUATOR_CODES` secret, e.g. `EV01`) see only the
+   scenario, the original recording and the note. They answer the same five
+   questions, in their own shuffled order, with the two versions of a scenario never
+   one after the other. Question 1 counts only from evaluators who understand Ekiti
+   Yoruba. After rating everything, a short **debrief** asks which kind of system made
+   each note, to check whether the blinding held.
+6. **Reviewer adjudication:** `python nurse_eval.py adjudication eval_references.csv`
+   writes `eval_out/reviewer_adjudication_<batch>.csv`: every note, shuffled, next to
+   its reference answer, without the condition. The reference reviewers mark, with
+   one written criterion for both systems, whether the note identifies the reference
+   danger sign, signals a danger that is not there, and matches the reference term.
+7. **Score:** `python nurse_eval.py score eval_references.csv` reports, per system,
+   danger-sign detection, false danger signals and meaning accuracy (from the
+   reviewers), urgency classification (automatic, reported separately), the
+   rule-based alert (ClinGuard only), evaluator answers and agreement; then a
+   **paired** ClinGuard vs LLM-only comparison on the same recordings (exact
+   McNemar) and the blinding check. `eval_out/nurse_evaluation_results.csv` is
+   admin-only: it shows each note's condition.
 
 Limitation: blinding is partial, because ClinGuard notes can carry the
-safety-check banner, which LLM-only notes never do.
+safety-check banner and a "LOW CONFIDENCE" prefix, which LLM-only notes never do.
 
 The 👍 / 👎 / 🤷 buttons in the Nurse tool remain the everyday pilot feedback.
 
@@ -306,6 +314,17 @@ scenarios, no real patients; `clinical` = real patients. Record any change in
 Nurses enter a facility code (e.g. `FAC001`). Set the issued codes
 in a `FACILITY_CODES` secret; the pilot lead keeps the code-to-facility list
 privately. Facility names are never stored.
+
+### Pilot health check
+
+`python pilot_check.py` (after `hf auth login`) shows attempts, errors by stage,
+ratings, missing codes, notes per nurse, facility and department, and unrated notes,
+since the pilot started. It reads the private logs only and shows no patient data.
+
+### Packages
+
+`requirements.txt` pins exact versions. Upgrade on purpose: change a version, test,
+then deploy, and note it in `CHANGELOG.md`.
 
 ### Dated reports and versions
 

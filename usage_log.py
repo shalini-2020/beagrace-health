@@ -48,6 +48,7 @@ FEEDBACK_FILE = LOG_DIR / f'feedback_{_RUN_ID}.jsonl'
 SUGGESTIONS_FILE = LOG_DIR / f'suggestions_{_RUN_ID}.jsonl'
 REVIEWS_FILE = LOG_DIR / f'reviews_{_RUN_ID}.jsonl'
 EVALUATIONS_FILE = LOG_DIR / f'evaluations_{_RUN_ID}.jsonl'
+EVAL_DEBRIEFS_FILE = LOG_DIR / f'eval_debriefs_{_RUN_ID}.jsonl'
 
 LOG_REPO = os.environ.get('USAGE_LOG_REPO', 'ss-shalini-2021/beagrace-usage')
 
@@ -201,8 +202,9 @@ def log_feedback(note_id: str, rating: str, comment: str = '', details: Optional
 
 
 def append_record(kind: str, record: dict) -> None:
-    """kind: 'suggestions', 'reviews' or 'evaluations'."""
-    path = {'suggestions': SUGGESTIONS_FILE, 'evaluations': EVALUATIONS_FILE}.get(kind, REVIEWS_FILE)
+    """kind: 'suggestions', 'reviews', 'evaluations' or 'eval_debriefs'."""
+    path = {'suggestions': SUGGESTIONS_FILE, 'evaluations': EVALUATIONS_FILE,
+            'eval_debriefs': EVAL_DEBRIEFS_FILE}.get(kind, REVIEWS_FILE)
     _append(path, {'time_utc': _now(), **record})
 
 
