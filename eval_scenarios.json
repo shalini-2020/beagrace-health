@@ -3,16 +3,16 @@
     "scenario_id": "EXAMPLE-ANC-01",
     "approved": false,
     "department": "Antenatal",
-    "situation": "A pregnant woman at an antenatal visit reports feeling dizzy and seeing dark spots since the morning.",
+    "situation": "A pregnant woman at an antenatal visit tells the nurse how she has been feeling today.",
     "phrase": "Oyi ti n komi mo de tun ri eje tonto lati owuro",
-    "notes": "EXAMPLE ONLY. Replace with scenarios approved by the clinical lead, then set approved to true."
+    "notes": "EXAMPLE ONLY. Replace with scenarios approved by the clinical lead, then set approved to true. The situation gives the setting only, never the symptom or its meaning in English, because evaluators judge the meaning themselves (question 1)."
   },
   {
     "scenario_id": "EXAMPLE-GOPD-01",
     "approved": false,
     "department": "General outpatient (GOPD)",
-    "situation": "An adult patient reports a headache.",
+    "situation": "An adult patient at the outpatient clinic tells the nurse what is wrong.",
     "phrase": "Ori mi n dun mi",
-    "notes": "EXAMPLE ONLY. Replace with scenarios approved by the clinical lead, then set approved to true."
+    "notes": "EXAMPLE ONLY. Replace with scenarios approved by the clinical lead, then set approved to true. The situation gives the setting only, never the symptom or its meaning in English, because evaluators judge the meaning themselves (question 1)."
   }
 ]

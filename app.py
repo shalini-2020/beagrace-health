@@ -29,7 +29,7 @@ import nurse_eval
 GLOSSARY_FILE = Path('glossary.json')
 
 # Bump APP_VERSION with each release so every log record shows which version made it.
-APP_VERSION = os.environ.get('APP_VERSION', '2026.11.09')
+APP_VERSION = os.environ.get('APP_VERSION', '2026.11.09.2')
 
 
 def _code_fingerprint() -> str:
@@ -368,6 +368,10 @@ def reviewer_title() -> str:
     return f'{REVIEWER_TITLE} · {waiting}'
 
 
+AI_NOTICE = ('<div class="ai-notice">⚠️ <b>AI-generated.</b> The transcript, interpretation and note '
+             'may contain errors. Check with the patient and use your clinical judgement before acting.</div>')
+
+
 DEPARTMENTS = ['Not specified', 'General outpatient (GOPD)', 'Antenatal', 'Postnatal',
                'Accident & Emergency', 'Medical/Surgical Ward', 'Other', TEST_DEPARTMENT]
 
@@ -601,6 +605,9 @@ body, .gradio-container {
     box-shadow: var(--shadow);
     border: 1px solid rgba(45,106,79,0.08);
 }
+.ai-notice { background: #fff7e6; border-left: 4px solid #d97706; border-radius: 8px; padding: 8px 12px;
+             font-size: 0.85rem; color: #5c3d00; margin: 2px 0 6px; }
+.ai-notice b { color: #5c3d00; }
 .panel-label {
     font-family: 'DM Serif Display', serif;
     color: var(--green-deep);
@@ -885,6 +892,7 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
 
                 with gr.Column(scale=1):
                     gr.HTML('<div class="panel-label">🔬 Result</div>', elem_classes=['slot'])
+                    gr.HTML(AI_NOTICE, elem_classes=['slot'])
                     transcript_out = gr.Textbox(label='What the patient said (Yoruba, as heard by speech recognition)',
                                                 interactive=False)
                     glossary_phrase_out = gr.Textbox(
@@ -898,6 +906,7 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
 
             gr.HTML('<div class="panel-label" style="margin-top:6px;">📋 Clinical Nurse Handoff Note</div>',
                     elem_classes=['slot'], elem_id='note-anchor')
+            gr.HTML(AI_NOTICE, elem_classes=['slot'])
             danger_out = gr.HTML('', elem_classes=['slot'])
             clinical_note_out = gr.Textbox(
                 label='Clinical note (tap the copy icon to copy)',
@@ -1154,7 +1163,8 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
 
     def _case_html(output, prefix=''):
         sc = nurse_eval.scenario_by_id(output.get('scenario_id')) or {}
-        return status_html('info', f"{prefix}<b>{sc.get('department', '')}</b><br>"
+        return status_html('info', f"{prefix}<b>{sc.get('department', '')}</b> · note label "
+                                   f"<code>{output.get('output_id', '')}</code><br>"
                                    f"<b>Situation:</b> {sc.get('situation', '')}<br>"
                                    f"<b>Speaker said (approved script):</b> {sc.get('phrase', '')}")
 

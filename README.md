@@ -261,7 +261,10 @@ use: none of it is counted in the usage, feedback or Impact totals.
 **Running the evaluation**
 
 1. **Scenarios.** The clinical lead writes standardised scenarios in
-   `eval_scenarios.json` and sets `"approved": true` once approved.
+   `eval_scenarios.json` and sets `"approved": true` once approved. Evaluators see
+   the `situation` and the Yoruba `phrase`, so the situation must give the **setting
+   only** (who, where), never the symptom or its English meaning: that would answer
+   question 1 for them. Reference answers live only in `eval_references.csv`.
 2. **Recordings.** Name files `<scenario_id>__<speaker>.<ext>` (e.g.
    `ANC-01__S1.m4a`) in a private folder such as `eval_recordings/` (git-ignored).
    Speakers' consent must cover evaluators listening to the recordings.
@@ -285,6 +288,9 @@ use: none of it is counted in the usage, feedback or Impact totals.
    its reference answer, without the condition. The reference reviewers mark, with
    one written criterion for both systems, whether the note identifies the reference
    danger sign, signals a danger that is not there, and matches the reference term.
+   Together these separate the four danger-sign cases that nurse question 4 can blur:
+   genuine danger sign identified, genuine danger sign missed, no danger sign and none
+   signalled, and no danger sign but a warning wrongly introduced.
 7. **Score:** `python nurse_eval.py score eval_references.csv` reports, per system,
    danger-sign detection, false danger signals and meaning accuracy (from the
    reviewers), urgency classification (automatic, reported separately), the

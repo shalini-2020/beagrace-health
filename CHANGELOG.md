@@ -38,6 +38,11 @@ can be tied to the code that produced them.
     Yoruba copied again.
   - `pilot_check.py`: one-command pilot health check.
   - Department name "Medical/Surgical Ward" now matches the glossary.
+- Release **2026.11.09.2**: a permanent notice in the Nurse tool, above the results and the
+  note: AI-generated output may contain errors; check with the patient and use clinical
+  judgement before acting. Evaluation tab: each note shows its anonymous note label;
+  example scenarios give the setting only (no English interpretation); README explains
+  how reviewer adjudication separates the four danger-sign cases.
 
 ## 2026-11-06
 
