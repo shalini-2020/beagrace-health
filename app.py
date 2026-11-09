@@ -29,7 +29,7 @@ import nurse_eval
 GLOSSARY_FILE = Path('glossary.json')
 
 # Bump APP_VERSION with each release so every log record shows which version made it.
-APP_VERSION = os.environ.get('APP_VERSION', '2026.11.06.2')
+APP_VERSION = os.environ.get('APP_VERSION', '2026.11.06.3')
 
 
 def _code_fingerprint() -> str:
@@ -45,6 +45,11 @@ def _code_fingerprint() -> str:
 
 
 CODE_FINGERPRINT = _code_fingerprint()
+
+# How the app is being used, recorded with every interaction: 'simulated' (nurses acting
+# out patient scenarios, no real patients) or 'clinical' (real patients). Set PILOT_MODE in
+# the Space settings when real clinical use begins.
+PILOT_MODE = os.environ.get('PILOT_MODE', 'simulated').strip().lower()
 
 # Languages the app supports. Add a language by adding an entry to languages.json
 # plus its glossary file (see README: "Adding a new language").
@@ -106,6 +111,7 @@ def glossary_version(lang: str = DEFAULT_LANG) -> str:
 def versions(lang: str = DEFAULT_LANG) -> dict:
     return {'app_version': APP_VERSION,
             'code_fingerprint': CODE_FINGERPRINT,
+            'use_mode': PILOT_MODE,
             'clinguard_version': getattr(clinguard, '__version__', 'unknown'),
             'glossary_version': glossary_version(lang),
             'rules_version': rules_version()}
@@ -402,6 +408,20 @@ def generate_or_ask_for_rating(audio_file, department, pending_note_id, language
         return (keep, keep, keep, keep, keep, pending_note_id, warning, keep, warning,
                 gr.update(value=GENERATE_LABEL), keep)
     audio_file = audio_file or whatsapp_file
+    if audio_file and department != TEST_DEPARTMENT:
+        # Real use: every note must be attributable to a department, a nurse and a facility
+        missing = []
+        if not department or department == 'Not specified':
+            missing.append('the <b>department</b>')
+        if not clean_nurse_code(nurse_code):
+            missing.append('your <b>nurse code</b> (e.g. N07)')
+        if not clean_facility_code(facility_code):
+            missing.append('a valid <b>facility code</b> (e.g. FAC001)')
+        if missing:
+            warning = status_html('warn', 'Please enter ' + ', '.join(missing) + ', then tap Generate again. '
+                                          '(Testing? Choose the department "Testing (not real use)".)')
+            return (keep, keep, keep, keep, keep, pending_note_id, warning, keep, warning,
+                    gr.update(value=GENERATE_LABEL), keep)
     result = process_audio(audio_file, department, language, nurse_code, facility_code)
     note_made = bool(result[5])   # a note id means a note was generated and now needs rating
     status = ''
@@ -814,7 +834,7 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
                     # The audio box above only accepts audio/* files, so WhatsApp voice
                     # notes saved as .mp4 are rejected by the browser. This box takes them.
                     whatsapp_input = gr.File(
-                        label='Or upload a WhatsApp voice note (.mp4, .m4a, .aac, .opus, .ogg, .mp3)',
+                        label='Or a WhatsApp voice note (.mp4 and others)',
                         file_types=WHATSAPP_FILE_TYPES,
                         file_count='single',
                         type='filepath',
@@ -830,16 +850,20 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
                     department_input = gr.Dropdown(
                         choices=DEPARTMENTS,
                         value='Not specified',
-                        label='Department (optional)',
+                        label='Department (required)',
                     )
                     nurse_code_input = gr.Textbox(
-                        label='Your nurse code (optional, e.g. N07). Never your name.',
+                        label='Your nurse code (required, e.g. N07). Never your name.',
                         max_lines=1,
                     )
                     facility_code_input = gr.Textbox(
-                        label='Facility code (optional, e.g. FAC001). Never the facility name.',
+                        label='Facility code (required, e.g. FAC001). Never the facility name. '
+                              'Remembered on this phone.',
                         max_lines=1,
                     )
+                    # Remember the facility code on this device so a refresh does not clear it.
+                    # (The nurse code is not remembered, in case nurses share a phone.)
+                    facility_store = gr.BrowserState('', storage_key='beagrace_facility_code')
                     submit_btn = gr.Button(
                         GENERATE_LABEL,
                         elem_id='submit-btn',
@@ -849,9 +873,12 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
                     gr.HTML("""
                     <div style="margin-top:4px; padding:10px 14px; background:#d8f3dc; border-radius:10px;">
                         <p style="margin:0; font-size:0.82rem; color:#2d6a4f; font-weight:500;">
-                            🎤 <strong>Record with the microphone</strong> or upload a file (MP3, WAV, M4A, OGG)<br>
-                            📍 <strong>Works with Yoruba speech.</strong> Most accurate for Ekiti dialect phrases.
-                            Other phrases are marked "Low confidence" for you to check.
+                            🎤 <strong style="color:#1a3a2a;">Record with the microphone</strong> or upload a file
+                            (MP3, WAV, M4A, OGG; WhatsApp .mp4 in the second box)<br>
+                            🪪 <strong style="color:#1a3a2a;">Every note needs</strong> the department, your nurse code
+                            and the facility code.<br>
+                            📍 <strong style="color:#1a3a2a;">Works with Yoruba speech.</strong> Most accurate for Ekiti
+                            dialect phrases. Other phrases are marked "Low confidence" for you to check.
                         </p>
                     </div>
                     """)
@@ -873,8 +900,9 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
                     elem_classes=['slot'], elem_id='note-anchor')
             danger_out = gr.HTML('', elem_classes=['slot'])
             clinical_note_out = gr.Textbox(
-                label='Clinical note',
-                show_label=False,
+                label='Clinical note (tap the copy icon to copy)',
+                show_label=True,
+                buttons=['copy'],
                 interactive=False,
                 lines=5,
                 elem_id='clinical-note',
@@ -998,6 +1026,10 @@ with gr.Blocks(css=CSS, title='BeaGrace Health') as demo:
         <p>Programme: <span class="highlight">AI Ventures Accelerator · Technovation &amp; UNICEF Generation Unlimited 2026</span></p>
     </div>
     """)
+
+    demo.load(lambda saved: saved or '', inputs=[facility_store], outputs=[facility_code_input])
+    facility_code_input.change(lambda code: (code or '').strip().upper(), inputs=[facility_code_input],
+                               outputs=[facility_store])
 
     submit_btn.click(
         fn=generate_or_ask_for_rating,

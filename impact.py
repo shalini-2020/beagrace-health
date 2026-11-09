@@ -26,6 +26,14 @@ PILOT_START = os.environ.get('PILOT_START', '2026-11-06T19:00')
 TEST_DEPARTMENT = 'Testing (not real use)'
 _CACHE = {'at': 0.0, 'stats': None}
 CACHE_SECONDS = 600
+# How the app is being used (also recorded with every interaction as use_mode):
+# 'simulated' = nurses acting out patient scenarios, no real patients; 'clinical' = real patients.
+PILOT_MODE = os.environ.get('PILOT_MODE', 'simulated').strip().lower()
+MODE_TEXT = {
+    'simulated': ('Simulated-use pilot',
+                  'Nurses acting out patient scenarios at the participating facility. No real patients.'),
+    'clinical': ('Clinical pilot', 'Day-to-day use by nurses with patients.'),
+}.get(PILOT_MODE, ('Pilot', ''))
 # Below this many rated notes, show the count only, not a percentage
 MIN_RATED_FOR_PCT = 20
 
@@ -257,8 +265,8 @@ def impact_html(stats: dict) -> str:
     ])
 
     pilot = _section(
-        'Operational pilot',
-        f"Day-to-day use by nurses from {stats['period_start']} to {stats['period_end']}. "
+        f'Operational pilot: {MODE_TEXT[0].lower()}',
+        f"{MODE_TEXT[1]} From {stats['period_start']} to {stats['period_end']}. "
         'Test use is excluded. These show activity and nurse opinion, not clinical accuracy.',
         f'<div class="impact-grid">{pilot_cards}</div>{pilot_cards_extra}')
 

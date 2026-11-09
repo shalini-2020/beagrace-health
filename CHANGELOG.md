@@ -7,10 +7,19 @@ can be tied to the code that produced them.
 ## Pilot reporting period
 
 - The pilot reporting period starts at **2026-11-06 19:00 UTC** (8:00 PM in Nigeria),
-  just before nurses began real use. Every record before that was developer or tester
+  just before nurses began pilot use. Every record before that was developer or tester
   activity (below). Those records are kept unchanged in the private logs and are left
   out of the Impact page and PDF reports by the reporting period, not by deletion.
   Set as the default `PILOT_START` in `impact.py`.
+
+## Type of use
+
+- From the start of the pilot (2026-11-06 19:00 UTC): **simulated use**. Nurses act out
+  patient scenarios at one facility (FAC001); no real patients. Interactions before
+  release 2026.11.06.3 do not carry the `use_mode` field; this note covers them.
+- From release 2026.11.06.3, every interaction records `use_mode` (`simulated` or
+  `clinical`, from the `PILOT_MODE` setting). Change `PILOT_MODE` to `clinical` only when
+  real patient use begins, and record the date here.
 
 ## 2026-11-06
 
@@ -28,6 +37,12 @@ can be tied to the code that produced them.
   glossary shown next to the transcript; Impact page redesign.
 - **17:31 UTC** - release **2026.11.06**: dated PDF report, facility codes, independent
   nurse evaluation, version and code fingerprint recorded with every interaction.
+- **After the evening session** - release **2026.11.06.3**: department, nurse code and
+  facility code required for every real-use note (testing department exempt); facility
+  code remembered on each phone; copy button on the note; `use_mode` recorded with every
+  interaction; Impact page and PDF labelled as a simulated-use pilot; readable tips text.
+- 19:12 and 19:31 UTC - first two pilot notes. The second was generated without
+  department, nurse or facility code (fields were optional then).
 - **~18:45 UTC** - release **2026.11.06.2**: blinded nurse evaluation (internals hidden
   from evaluators, original recording, optional LLM-only comparison condition); clearer
   AI-fallback labels; pilot reporting period starts 19:00 UTC; this changelog.

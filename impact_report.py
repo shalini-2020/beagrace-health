@@ -11,7 +11,7 @@ from pathlib import Path
 
 from fpdf import FPDF
 
-from impact import MIN_RATED_FOR_PCT, PATHWAYS, TEST_DEPARTMENT, _pct
+from impact import MIN_RATED_FOR_PCT, MODE_TEXT, PATHWAYS, TEST_DEPARTMENT, _pct
 
 GREEN = (45, 106, 79)
 DARK = (26, 58, 42)
@@ -111,6 +111,7 @@ def build_report(stats: dict) -> str:
     pdf.table(['Item', 'Value'], [
         ['Reporting period', f"{stats['period_start']} to {stats['period_end']} (UTC)"],
         ['Report generated', generated],
+        ['Type of use', f'{MODE_TEXT[0]}. {MODE_TEXT[1]}'],
         ['Data included', f"Pilot use only. The '{TEST_DEPARTMENT}' department is excluded."],
         ['Records counted up to', stats.get('counted_until', '')],
         ['Data fingerprint', f"{stats.get('fingerprint', 'n/a')} (identifies the exact records counted)"],
@@ -124,7 +125,7 @@ def build_report(stats: dict) -> str:
                 'evaluation has been carried out.')
 
     # 1. Usage
-    pdf.h2('1. Operational pilot: usage')
+    pdf.h2(f'1. Operational pilot ({MODE_TEXT[0].lower()}): usage')
     depts = ', '.join(f'{n} ({c})' for n, c in stats['departments']) or 'not recorded yet'
     pdf.table(['Measure', 'Count', 'Note'], [
         ['Attempts (audio submitted)', stats['attempts'], 'all outcomes'],

@@ -290,9 +290,20 @@ safety-check banner, which LLM-only notes never do.
 
 The 👍 / 👎 / 🤷 buttons in the Nurse tool remain the everyday pilot feedback.
 
-### Facility codes
+### Required fields, facility codes and type of use
 
-Nurses can enter an optional facility code (e.g. `FAC001`). Set the issued codes
+For real use, every note needs a department, a nurse code (e.g. `N07`) and a
+facility code (e.g. `FAC001`); the app will not generate a note without them. The
+department "Testing (not real use)" is exempt, so testing never needs codes. The
+facility code is remembered on each phone; the nurse code is not, in case phones are
+shared.
+
+`PILOT_MODE` (Space variable, default `simulated`) is recorded with every interaction
+and sets the Impact page and PDF wording: `simulated` = nurses acting out patient
+scenarios, no real patients; `clinical` = real patients. Record any change in
+`CHANGELOG.md`.
+
+Nurses enter a facility code (e.g. `FAC001`). Set the issued codes
 in a `FACILITY_CODES` secret; the pilot lead keeps the code-to-facility list
 privately. Facility names are never stored.
 
