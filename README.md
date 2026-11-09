@@ -321,6 +321,14 @@ evaluator codes private and make sure the consent forms cover playback.
 
 The 👍 / 👎 / 🤷 buttons in the Nurse tool remain the everyday pilot feedback.
 
+### Several complaints in one recording
+
+A glossary phrase covers one complaint. After a glossary match, the app asks the AI
+whether the patient clearly mentioned anything else; if so, it is added to the note as
+"ALSO MENTIONED (AI, not glossary-verified) - confirm with the patient" and included in
+the danger-keyword check. When nothing matches the glossary, the AI translates the whole
+transcript as before.
+
 ### Required fields, facility codes and type of use
 
 For real use, every note needs a department, a nurse code (e.g. `N07`) and a

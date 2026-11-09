@@ -123,7 +123,8 @@ def log_usage(department: str, outcome: str, glossary_match: bool = False,
               confidence_level: Optional[str] = None, match_id: Optional[str] = None,
               danger_rule_ids: Optional[list] = None, error_stage: Optional[str] = None,
               versions: Optional[dict] = None, nurse_code: Optional[str] = None,
-              speech_model: Optional[str] = None, facility_code: Optional[str] = None) -> str:
+              speech_model: Optional[str] = None, facility_code: Optional[str] = None,
+              also_mentioned: Optional[str] = None) -> str:
     """Record one interaction (note / no_speech / error). Returns its note_id,
     which links feedback and (if enabled) content records to it."""
     note_id = note_id or new_interaction_id()
@@ -134,6 +135,7 @@ def log_usage(department: str, outcome: str, glossary_match: bool = False,
         'language': language,
         'nurse_code': nurse_code,                # optional pseudonymous code, never a name
         'facility_code': facility_code,          # optional code like FAC001, never a facility name
+        'also_mentioned': also_mentioned,        # after a glossary match: found / none / failed (no content)
         'outcome': outcome,                      # note / no_speech / error
         'error_stage': error_stage,              # transcription / translation / note / None
         'glossary_match': glossary_match,

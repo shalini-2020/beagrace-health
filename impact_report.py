@@ -174,6 +174,8 @@ def build_report(stats: dict) -> str:
     pdf.table(['Safety check (rule-based, runs without the AI)', 'Count'], [
         ['Notes with a danger-sign alert', f"{stats['danger_notes']} of {stats['notes']}"],
         ['Danger rule matches', stats['danger_rules_fired']],
+        ['Glossary notes with another complaint flagged (AI safety net)',
+         f"{stats['also_found']} of {stats['also_checked']}" if stats.get('also_checked') else 'not recorded yet'],
     ], [130, 44])
 
     # 4. Independent evaluation

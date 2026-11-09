@@ -44,6 +44,15 @@ can be tied to the code that produced them.
   example scenarios give the setting only (no English interpretation); README explains
   how reviewer adjudication separates the four danger-sign cases.
 
+## 2026-11-09 (several complaints in one recording)
+
+- Release **2026.11.09.3**: after a glossary match, an AI safety net asks whether the patient
+  clearly mentioned any other complaint. If so, it is added to the note as "ALSO MENTIONED
+  (AI, not glossary-verified) - confirm with the patient", shown next to the symptom, included
+  in the note's assessment and in the danger-keyword check. Previously anything beyond the
+  matched phrase was dropped from the interpretation. Each note records `also_mentioned`
+  (found / none / failed; no content). Impact page and PDF show how often it fires.
+
 ## 2026-11-09 (evaluation scoring)
 
 - `nurse_eval.py asr`: speech-recognition accuracy against the Yoruba reviewer's

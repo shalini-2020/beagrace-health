@@ -29,7 +29,7 @@ import nurse_eval
 GLOSSARY_FILE = Path('glossary.json')
 
 # Bump APP_VERSION with each release so every log record shows which version made it.
-APP_VERSION = os.environ.get('APP_VERSION', '2026.11.09.2')
+APP_VERSION = os.environ.get('APP_VERSION', '2026.11.09.3')
 
 
 def _code_fingerprint() -> str:
@@ -310,6 +310,25 @@ def load_prompt_examples() -> str:
     return '\n'.join(f'- "{e["patient_says"]}" -> {e["clinical_term"]}' for e in examples)
 
 
+def other_complaints(transcript: str, matched_symptom: str, lang: str = DEFAULT_LANG) -> str:
+    """Safety net after a glossary match: a glossary phrase covers one complaint, and anything
+    else the patient said would otherwise be dropped. Asks the AI for OTHER complaints clearly
+    stated in the transcript. Returns '' when there are none. The result is never treated as
+    verified: it is shown and logged as AI output for the nurse to confirm."""
+    cfg = lang_cfg(lang)
+    prompt = f"""A patient spoke {cfg['name']} ({cfg.get('dialect_note', 'local dialect')}). Speech recognition transcript (may contain errors):
+"{transcript}"
+
+The complaint "{matched_symptom}" has already been identified from a verified glossary.
+Did the patient clearly state any OTHER health complaint or symptom in this transcript?
+Reply NONE if not, or if you are unsure. Otherwise reply with the other complaint(s) only, in plain English, at most one short line. Do not repeat "{matched_symptom}" and do not guess."""
+    answer = (call_groq(prompt, max_tokens=120) or '').strip().splitlines()[0:1]
+    answer = answer[0].strip(' .') if answer else ''
+    if not answer or answer.upper().startswith(('NONE', 'NO ', 'NO.', 'UNCLEAR')) or answer.upper() == 'NO':
+        return ''
+    return answer[:200]
+
+
 def generate_clinical_note(english_symptom: str, literal_meaning: str, lang: str = DEFAULT_LANG) -> str:
     cfg = lang_cfg(lang)
     spoken = f"{cfg.get('dialect_note', '')} {cfg['name']}".replace('dialect ', '').strip()
@@ -470,13 +489,27 @@ def process_audio(audio_file, department='Not specified', language=DEFAULT_LANG,
             confidence_str = f'{confidence:.0%} partial match - please confirm with the patient'
         else:
             confidence_str = 'No glossary match - AI translation, needs nurse review'
+        # Safety net: a glossary match covers one complaint; ask whether anything else was said
+        also, also_check = '', None
+        if confidence > 0:
+            try:
+                also = other_complaints(transcript, english_symptom, language)
+                also_check = 'found' if also else 'none'
+            except Exception as e:
+                print(f'  [Also-mentioned check] failed: {e}')
+                also_check = 'failed'
         # Safety check that does not depend on the AI
         reasons = check_danger(glossary_term=english_symptom if confidence > 0 else '',
                                transcript=transcript,
                                keywords_key=keywords_key,
-                               english_text=f'{english_symptom} {literal_meaning}')
+                               english_text=f'{english_symptom} {literal_meaning} {also}')
         stage = 'note'
-        clinical_note = generate_clinical_note(english_symptom, literal_meaning, language)
+        note_symptom = (f'{english_symptom}; also mentioned (not glossary-verified): {also}'
+                        if also else english_symptom)
+        clinical_note = generate_clinical_note(note_symptom, literal_meaning, language)
+        if also:
+            clinical_note = ('ALSO MENTIONED (AI, not glossary-verified) - confirm with the patient: '
+                             f'{also}\n\n' + clinical_note)
         if confidence == 0:
             clinical_note = ('LOW CONFIDENCE - phrase not in glossary. '
                              'Confirm with the patient before acting.\n\n' + clinical_note)
@@ -488,20 +521,22 @@ def process_audio(audio_file, department='Not specified', language=DEFAULT_LANG,
                   urgency=extract_urgency(clinical_note), danger_sign=bool(reasons),
                   confidence_level=level, match_id=result.get('match_id'),
                   danger_rule_ids=danger_rule_ids(reasons, keywords_key),
-                  versions=versions(language), **log)
+                  also_mentioned=also_check, versions=versions(language), **log)
         # Clinical content: only written when LOG_CONTENT is enabled (off by default)
         log_content_(note_id, language=language, transcript=transcript,
                     english=english_symptom, meaning=literal_meaning,
                     ai_fallback_translation=result.get('fallback', ''),
-                    note=clinical_note)
+                    also_mentioned=also, note=clinical_note)
         if details is not None:
             details.update(transcript=transcript, english=english_symptom, meaning=literal_meaning,
                            confidence=round(confidence * 100), confidence_level=level,
                            match_id=result.get('match_id'), glossary_phrase=result.get('phrase', ''),
                            urgency=extract_urgency(clinical_note), danger_sign=bool(reasons),
                            danger_rule_ids=danger_rule_ids(reasons, keywords_key), note=clinical_note,
+                           also_mentioned=also,
                            speech_model=speech_model, **versions(language))
-        return (transcript, english_symptom, literal_meaning, confidence_str, clinical_note,
+        shown_symptom = f'{english_symptom}  ·  also mentioned (AI, unverified): {also}' if also else english_symptom
+        return (transcript, shown_symptom, literal_meaning, confidence_str, clinical_note,
                 note_id, '', danger_banner(reasons), glossary_phrase_text(result))
     except Exception as e:
         import traceback

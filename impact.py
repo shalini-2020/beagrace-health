@@ -150,6 +150,8 @@ def compute_stats(glossary_size: int, fresh: bool = False, until: str = None) ->
         'notes_with_level': len(with_level),
         'pathways': by_path,
         'danger_notes': sum(1 for r in notes if r.get('danger_sign')),
+        'also_checked': sum(1 for r in notes if r.get('also_mentioned') in ('found', 'none', 'failed')),
+        'also_found': sum(1 for r in notes if r.get('also_mentioned') == 'found'),
         'danger_rules_fired': sum(len(r.get('danger_rule_ids') or []) for r in notes),
         'phrases_learned': len(reviews),
         # Independent evaluation progress: counts only, never results (see nurse_eval.py)
@@ -262,6 +264,10 @@ def impact_html(stats: dict) -> str:
     clinguard_cards = ''.join([
         _card(stats['danger_notes'], 'Notes with a danger-sign alert',
               f"{stats['danger_rules_fired']} rule matches · safety check runs without the AI"),
+        _card(f"{stats['also_found']} of {stats['also_checked']}" if stats['also_checked'] else dash,
+              'Glossary notes with another complaint flagged',
+              'AI safety net, not glossary-verified · nurse confirms'
+              if stats['also_checked'] else 'recorded from release 2026.11.09.3'),
     ])
 
     pilot = _section(
@@ -301,6 +307,9 @@ def impact_html(stats: dict) -> str:
               never counted in two paths, so the shares add up to 100%. When a glossary phrase matches,
               the AI translation is not used for the rest of what was said.</li>
           <li><b>Danger-sign alert</b>: the rule-based safety check (no AI) flagged the note for escalation.</li>
+          <li><b>Another complaint flagged</b>: after a glossary match, the AI checks whether the patient
+              clearly mentioned anything else; if so, it is added to the note marked as not
+              glossary-verified, for the nurse to confirm.</li>
           <li><b>Nurses</b>: distinct pseudonymous nurse codes. Notes without a code are not counted.</li>
           <li><b>Facilities</b>: distinct facility codes (e.g. FAC001) issued by the pilot lead, who keeps
               the code-to-facility list privately. Notes without a code are not counted.</li>
