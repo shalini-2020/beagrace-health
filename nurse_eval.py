@@ -39,6 +39,10 @@ results can be compared across nurses and agreement between them can be measured
         rule-based alert (ClinGuard only), evaluator answers and agreement; then a paired
         ClinGuard vs LLM-only comparison on the same recordings (exact McNemar), the
         blinding check, and the admin-only eval_out/nurse_evaluation_results.csv.
+  9. Speech recognition, reported separately:  python nurse_eval.py asr eval_references.csv
+     -> word error rate against the Yoruba reviewer's reference transcript (normalised and
+        tone-sensitive; corpus, per recording, by scenario type and department) and
+        clinical-term preservation, saved to eval_out/speech_recognition_<batch>.csv.
 
 Evaluation runs are never counted in the pilot usage, feedback or Impact totals.
 Never use a real patient encounter as a scenario or recording.
@@ -380,10 +384,23 @@ def krippendorff_alpha_nominal(units: dict):
 
 
 def _load_refs(references_path: str) -> dict:
+    """Locked reference answers. Refuses a malformed file (for example a comma inside an
+    unquoted transcript), which would otherwise shift columns and be scored silently wrong."""
     with open(references_path, encoding='utf-8-sig', newline='') as f:
-        return {r['scenario_id'].strip(): r for r in csv.DictReader(f)
-                if (r.get('scenario_id') or '').strip()
-                and not r['scenario_id'].upper().startswith('EXAMPLE')}
+        reader = csv.DictReader(f)
+        rows = list(reader)
+    bad = [r.get('scenario_id') or f'row {i + 2}' for i, r in enumerate(rows)
+           if None in r or any(v is None for v in r.values())]
+    if bad:
+        raise SystemExit(f'{references_path}: wrong number of columns in {", ".join(map(str, bad))}. '
+                         'A comma inside a text cell must be in double quotes; editing and saving '
+                         'the file in Excel does this automatically.')
+    ids = [r['scenario_id'].strip() for r in rows if (r.get('scenario_id') or '').strip()]
+    dupes = {i for i in ids if ids.count(i) > 1}
+    if dupes:
+        raise SystemExit(f'{references_path}: scenario_id listed more than once: {", ".join(sorted(dupes))}')
+    return {r['scenario_id'].strip(): r for r in rows
+            if (r.get('scenario_id') or '').strip() and not r['scenario_id'].upper().startswith('EXAMPLE')}
 
 
 def _batch(batch_id: str = None):
@@ -668,6 +685,145 @@ def show(batch_id: str = None) -> None:
         print()
 
 
+# ---------------------------------------------------------------- speech recognition accuracy
+#
+# Separate from the ClinGuard vs LLM comparison (which gives both systems the same
+# transcript): this measures how accurately speech recognition transcribed each recording,
+# against the independent Yoruba reviewer's reference transcript.
+#
+# Normalisation policy, fixed before scoring (applied to reference and recognised text alike):
+#   both levels: Unicode NFC, lower case, punctuation removed (letters, digits and spaces
+#                kept), runs of spaces collapsed.
+#   PRIMARY  (normalised WER):     all diacritics removed: tone marks (acute, grave, macron)
+#                                  and the dot below (e/o/s with a dot -> e/o/s).
+#   SECONDARY (tone-sensitive WER): all diacritics kept, so a missing or wrong tone mark or
+#                                  dot below counts as a substitution.
+# Corpus WER = total substitutions + deletions + insertions / total reference words
+# (never an average of per-recording percentages).
+# Clinical-term preservation: the reviewer lists the clinically important Yoruba words or
+# phrases of each recording (reference_key_terms, separated by ;). A term is preserved
+# when it appears, as consecutive words, in the recognised transcript (primary normalisation).
+
+TONE_MARKS = {'̀', '́', '̄'}   # grave, acute, macron
+
+
+def normalise(text: str, keep_diacritics: bool = False) -> list:
+    import unicodedata
+    text = unicodedata.normalize('NFD', (text or '').lower())
+    if not keep_diacritics:
+        text = ''.join(c for c in text if not unicodedata.combining(c))
+    text = ''.join(c if (c.isalnum() or c.isspace() or unicodedata.combining(c)) else ' ' for c in text)
+    return unicodedata.normalize('NFC', text).split()
+
+
+def word_errors(ref: list, hyp: list):
+    """(substitutions, deletions, insertions) of the minimum-edit alignment."""
+    n, m = len(ref), len(hyp)
+    d = [[(0, 0, 0, 0)] * (m + 1) for _ in range(n + 1)]   # (cost, S, D, I)
+    for i in range(1, n + 1):
+        d[i][0] = (i, 0, i, 0)
+    for j in range(1, m + 1):
+        d[0][j] = (j, 0, 0, j)
+    for i in range(1, n + 1):
+        for j in range(1, m + 1):
+            if ref[i - 1] == hyp[j - 1]:
+                d[i][j] = d[i - 1][j - 1]
+                continue
+            c, S, D, I = d[i - 1][j - 1]
+            sub = (c + 1, S + 1, D, I)
+            c, S, D, I = d[i - 1][j]
+            dele = (c + 1, S, D + 1, I)
+            c, S, D, I = d[i][j - 1]
+            ins = (c + 1, S, D, I + 1)
+            d[i][j] = min(sub, dele, ins)
+    _, S, D, I = d[n][m]
+    return S, D, I
+
+
+def _contains(words: list, term: list) -> bool:
+    return bool(term) and any(words[i:i + len(term)] == term for i in range(len(words) - len(term) + 1))
+
+
+def speech_recognition(references_path: str, batch_id: str = None) -> None:
+    refs = _load_refs(references_path)
+    batch_id, outputs = _batch(batch_id)
+    scenarios = {sc['scenario_id']: sc for sc in load_scenarios()}
+    # one row per recording (both systems share the same transcript)
+    recs = {}
+    for o in sorted(outputs, key=lambda o: o.get('condition') != 'clinguard'):
+        key = (o.get('scenario_id'), o.get('speaker'), o.get('recording_sha256'))
+        if o.get('scenario_id') in refs and key not in recs:
+            recs[key] = o
+    rows, missing_ref = [], 0
+    for (scenario_id, speaker, sha), o in sorted(recs.items(), key=lambda kv: (kv[0][0] or '', kv[0][1] or '')):
+        ref = refs[scenario_id]
+        ref_text = (ref.get('reference_transcript') or '').strip()
+        if not ref_text:
+            missing_ref += 1
+            continue
+        hyp_text = o.get('transcript') or ''
+        r1, h1 = normalise(ref_text), normalise(hyp_text)
+        r2, h2 = normalise(ref_text, True), normalise(hyp_text, True)
+        S, D, I = word_errors(r1, h1)
+        S2, D2, I2 = word_errors(r2, h2)
+        terms = [t.strip() for t in (ref.get('reference_key_terms') or '').split(';') if t.strip()]
+        kept = [t for t in terms if _contains(h1, normalise(t))]
+        sc = scenarios.get(scenario_id, {})
+        rows.append({'scenario_id': scenario_id, 'speaker': speaker or '', 'recording_sha256': sha,
+                     'category': sc.get('category', ''), 'department': sc.get('department', ''),
+                     'reference_transcript': ref_text, 'recognised_transcript': hyp_text,
+                     'reference_words': len(r1), 'substitutions': S, 'deletions': D, 'insertions': I,
+                     'wer_normalised': round((S + D + I) / len(r1), 3) if r1 else '',
+                     'reference_words_tone': len(r2), 'errors_tone_sensitive': S2 + D2 + I2,
+                     'wer_tone_sensitive': round((S2 + D2 + I2) / len(r2), 3) if r2 else '',
+                     'key_terms': '; '.join(terms), 'key_terms_preserved': len(kept),
+                     'key_terms_missed': '; '.join(t for t in terms if t not in kept)})
+    print(f'Speech recognition accuracy, batch {batch_id}: {len(rows)} recordings'
+          + (f' ({missing_ref} skipped: no reference_transcript)' if missing_ref else ''))
+    if not rows:
+        return
+
+    def corpus(sub):
+        n = sum(r['reference_words'] for r in sub)
+        e = sum(r['substitutions'] + r['deletions'] + r['insertions'] for r in sub)
+        return f'{100 * e / n:.1f}% ({e} errors / {n} words)' if n else 'n/a'
+    S = sum(r['substitutions'] for r in rows); D = sum(r['deletions'] for r in rows); I = sum(r['insertions'] for r in rows)
+    print(f'  Corpus WER, normalised (primary): {corpus(rows)}  [S {S}, D {D}, I {I}]')
+    n2 = sum(r['reference_words_tone'] for r in rows); e2 = sum(r['errors_tone_sensitive'] for r in rows)
+    print(f'  Corpus WER, tone-sensitive:       {100 * e2 / n2:.1f}% ({e2} errors / {n2} words)' if n2 else '')
+    with_marks = sum(1 for r in rows if normalise(r['recognised_transcript'], True) != normalise(r['recognised_transcript']))
+    print(f'    recognised transcripts containing any tone mark or dot below: {with_marks} of {len(rows)}'
+          ' (if few, tone-sensitive WER mostly reflects missing diacritics)')
+    per = sorted(r['wer_normalised'] for r in rows if r['wer_normalised'] != '')
+    if per:
+        import statistics
+        print(f'  Per-recording WER (normalised): median {100 * statistics.median(per):.0f}%, '
+              f'best {100 * per[0]:.0f}%, worst {100 * per[-1]:.0f}%')
+    for field, label in (('category', 'scenario type'), ('department', 'department')):
+        groups = defaultdict(list)
+        for r in rows:
+            groups[r[field] or '(not set)'].append(r)
+        if len(groups) > 1 or field == 'category':
+            print(f'  By {label}: ' + ' | '.join(f'{g} {corpus(sub)}' for g, sub in sorted(groups.items())))
+    total_terms = sum(len([t for t in r['key_terms'].split('; ') if t]) for r in rows)
+    kept = sum(r['key_terms_preserved'] for r in rows)
+    print(f'  Clinical-term preservation: {_wilson(kept, total_terms)}')
+    missed = Counter(t for r in rows for t in r['key_terms_missed'].split('; ') if t)
+    if missed:
+        print('    most often lost: ' + ', '.join(f'{t} ({c})' for t, c in missed.most_common(8)))
+    worst = sorted((r for r in rows if r['wer_normalised'] != ''), key=lambda r: -r['wer_normalised'])[:5]
+    print('  Hardest recordings: ' + ', '.join(f"{r['scenario_id']}{'/' + r['speaker'] if r['speaker'] else ''} "
+                                              f"{100 * r['wer_normalised']:.0f}%" for r in worst))
+    out = Path('eval_out')
+    out.mkdir(exist_ok=True)
+    path = out / f'speech_recognition_{batch_id}.csv'
+    with open(path, 'w', newline='', encoding='utf-8-sig') as f:
+        w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        w.writeheader()
+        w.writerows(rows)
+    print(f'Saved {path} (one row per recording).')
+
+
 if __name__ == '__main__':
     args = sys.argv[1:]
     if len(args) in (2, 3) and args[0] == 'generate':
@@ -678,9 +834,12 @@ if __name__ == '__main__':
         make_adjudication(args[1], args[2] if len(args) == 3 else None)
     elif len(args) in (2, 3) and args[0] == 'score':
         score(args[1], args[2] if len(args) == 3 else None)
+    elif len(args) in (2, 3) and args[0] == 'asr':
+        speech_recognition(args[1], args[2] if len(args) == 3 else None)
     else:
         print('Usage:\n'
               '  python nurse_eval.py generate <recordings folder> [--with-baseline]\n'
               '  python nurse_eval.py show [batch_id]                      (admin preview)\n'
               '  python nurse_eval.py adjudication eval_references.csv [batch_id]\n'
-              '  python nurse_eval.py score eval_references.csv [batch_id]')
+              '  python nurse_eval.py score eval_references.csv [batch_id]\n'
+              '  python nurse_eval.py asr eval_references.csv [batch_id]     (speech recognition accuracy)')

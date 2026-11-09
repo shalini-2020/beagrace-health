@@ -299,8 +299,25 @@ use: none of it is counted in the usage, feedback or Impact totals.
    McNemar) and the blinding check. `eval_out/nurse_evaluation_results.csv` is
    admin-only: it shows each note's condition.
 
-Limitation: blinding is partial, because ClinGuard notes can carry the
+8. **Speech recognition, reported separately:**
+   `python nurse_eval.py asr eval_references.csv` measures how accurately speech
+   recognition transcribed each recording against the Yoruba reviewer's reference
+   transcript (`reference_transcript`, written from the recording, never from the
+   app's output): word error rate, corpus-level (total errors / total reference
+   words), per recording, by scenario `category` and by department, plus
+   clinical-term preservation for the key terms the reviewer lists
+   (`reference_key_terms`, separated by `;`). Normalisation is fixed in advance:
+   the **primary** WER ignores punctuation, case and all diacritics (tone marks and
+   the dot below); the **tone-sensitive** WER keeps them. The scoring refuses a
+   malformed reference file (e.g. an unquoted comma), so edit it in Excel.
+
+Limitations: blinding is partial, because ClinGuard notes can carry the
 safety-check banner and a "LOW CONFIDENCE" prefix, which LLM-only notes never do.
+The interpretation comparison gives both systems the same transcript, so it does not
+measure end-to-end accuracy; that is what the separate speech-recognition measure is
+for. Audio is fetched only after a valid evaluator code, but once playing, its
+temporary address could be passed on by someone who already has access: keep
+evaluator codes private and make sure the consent forms cover playback.
 
 The 👍 / 👎 / 🤷 buttons in the Nurse tool remain the everyday pilot feedback.
 

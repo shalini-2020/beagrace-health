@@ -44,6 +44,16 @@ can be tied to the code that produced them.
   example scenarios give the setting only (no English interpretation); README explains
   how reviewer adjudication separates the four danger-sign cases.
 
+## 2026-11-09 (evaluation scoring)
+
+- `nurse_eval.py asr`: speech-recognition accuracy against the Yoruba reviewer's
+  reference transcript, reported separately from the ClinGuard vs LLM comparison:
+  normalised and tone-sensitive word error rate (corpus, per recording, by scenario
+  type and department) and clinical-term preservation. Normalisation policy fixed in
+  the code and README. Reference template gains `reference_transcript` and
+  `reference_key_terms`; scenarios gain an optional `category`. Scoring now refuses a
+  malformed or duplicated reference file. App unchanged.
+
 ## 2026-11-06
 
 - **14:10-14:19 UTC** - 14 attempts failed at the transcription stage (a pilot tester
