@@ -216,14 +216,46 @@ A **Patient language** selector appears automatically once more than one languag
 
 ## 📊 Evaluation
 
-| Metric | Value |
-|---|---|
-| Glossary match recall | 100% on 21 known symptoms |
-| Fuzzy match threshold | 75% confidence |
-| Clinical note structure | 4/4 fields on every output |
-| End-to-end latency | ~10-15 seconds |
+**Status (11 November 2026): the clinical accuracy of BeaGrace has not yet been measured.**
+The figures below describe how the system behaves, not how often its notes are right.
 
-For cases where confidence falls below 75%, the system translates with the LLM instead and marks the note LOW CONFIDENCE for nurse review.
+| Measure | Value | What it does and does not show |
+|---|---|---|
+| Glossary matching on written text | 177 of 178 misspelled variants matched; 2 of 60 phrases matched a wrong term when their own entry was removed | Run with ClinGuard 0.1.2's `scripts/evaluate_lexicon.py` on the 60-entry glossary. Tests text matching only: no speech recognition and no clinical judgement. |
+| Fuzzy match threshold | 75% confidence | Below this, the system translates with the LLM instead and marks the note LOW CONFIDENCE for nurse review. |
+| Clinical note structure | 4 of 4 fields on every output | Format only. |
+| Time to a note | About 3 to 15 seconds on a strong connection | As timed by testers in the first pilot session. |
+
+### Early pilot feedback (6 November 2026)
+
+The first simulated-use session was held on 6 November 2026: nurses, a midwife and a
+student nurse acted out patient scenarios (no real patients) and filled in five written
+feedback forms. This is informal usability feedback, **not accuracy evidence**: testers
+assessed their own attempts, and some forms did not record what the app showed.
+
+What it showed:
+
+- The app ran without crashing and produced notes within seconds.
+- Testers found the notes clear and said the tool would help with the language barrier
+  between patients and nurses.
+
+Problems reported:
+
+- **Natural speech:** when the speaker added extra words or spoke freely, the app often
+  could not interpret the phrase. In the usage log for the session, 4 of the 8 notes
+  were "not understood" and fell back to the LLM.
+- **Yoruba spelling:** the transcription was not written in correct Ekiti Yoruba, so it
+  could not be used for documentation as it stood.
+- **A possible wrong match:** one form recorded a symptom that did not fit the intended
+  meaning. The output was not saved, so this is unconfirmed.
+
+Requests from testers, recorded for later and not yet built: fields for vital signs,
+gestational age, expected delivery date and pain intensity; and low cost and easy access.
+
+From 11 November 2026, each session uses a scenario sheet that records exactly what the
+app showed for every attempt. Accuracy will be reported only from the independent
+evaluation below, where reference answers are written by reviewers who never see the
+app's output.
 
 ### Comparing against baselines (`compare_baselines.py`)
 
@@ -371,16 +403,24 @@ produced them. Bump `APP_VERSION` in `app.py` with each release.
 
 ## 🗺️ Roadmap
 
-**Phase 1 — Live (June 2026)**
-- Ekiti Yoruba speech → clinical nurse handoff note
-- 60-entry symptom glossary
-- Deployed on Hugging Face Spaces
+**Phase 1 — Patient speech → nurse note (in progress)**
 
-**Phase 2 — October 2026**
-- Expand glossary to 100+ symptoms
-- Low-confidence flagging for manual nurse review
-- Clinical validation with nurses at rural facilities in Ekiti State
-- Nurse → patient response in Yoruba (English speech → Yoruba text)
+Done:
+- Ekiti Yoruba speech → clinical nurse handoff note, deployed on Hugging Face Spaces (June 2026)
+- 60-entry symptom glossary, low-confidence flagging and rule-based danger-sign check
+- Simulated-use pilot with nurses at one facility (from 6 November 2026)
+
+Next, in this order:
+- Written authorisation from the facility, and its decision on ethics review
+- Independent, blinded nurse evaluation (see Evaluation)
+- Use with real patients only after that evaluation and the facility's approvals
+
+Features are frozen until the evaluation is complete.
+
+**Phase 2 — After Phase 1 is live and evaluated**
+- Nurse → patient messages in Yoruba, from a phrase bank translated and checked by
+  native speakers and clinicians (not free AI translation), under its own protocol
+- Expand the glossary, including Medical/Surgical phrases
 
 ---
 
@@ -388,7 +428,7 @@ produced them. Bump `APP_VERSION` in `app.py` with each release.
 
 **Founder:** Christabel Ezem · BeaGrace Foundation, Nigeria
 
-**Technical Mentor:** Shalini Sivasamy · Senior AI/ML Engineer · IEEE Senior Member
+**Principal AI Architect and Engineering Lead:** Shalini Sivasamy · designed and built the system · AIVA Expert Mentor to the BeaGrace team · IEEE Senior Member
 
 **Programme:** AIVA / Technovation 2026 · UNICEF Generation Unlimited
 
@@ -411,4 +451,4 @@ This project is open source. The glossary and pipeline architecture are availabl
 
 ## ⚠️ Disclaimer
 
-This is a working prototype built for the AIVA / Technovation 2026 programme. It is not a fully developed or clinically validated product. The clinical notes generated by this system are AI-assisted and should not be used as a substitute for professional medical judgment. Clinical validation with qualified healthcare workers is planned for Phase 2.
+This is a working prototype built for the AIVA / Technovation 2026 programme. It is not a fully developed or clinically validated product. The clinical notes generated by this system are AI-assisted and should not be used as a substitute for professional medical judgment. Its clinical accuracy has not yet been measured; an independent evaluation with qualified healthcare workers is planned before any use with real patients.

@@ -21,6 +21,15 @@ can be tied to the code that produced them.
   `clinical`, from the `PILOT_MODE` setting). Change `PILOT_MODE` to `clinical` only when
   real patient use begins, and record the date here.
 
+## 2026-11-11
+
+- README only (no code change, app version unchanged): evaluation section now states that
+  clinical accuracy has not been measured, replaces an outdated glossary figure with the
+  reproducible ClinGuard result, summarises the feedback from the 6 November session as
+  usability feedback, and updates the roadmap (Phase 1 evaluation and approvals before
+  real-patient use; nurse-to-patient messages moved to Phase 2). Team section: Shalini Sivasamy's role is
+  now given as Principal AI Architect and Engineering Lead, as agreed with the BeaGrace founder.
+
 ## 2026-11-09
 
 - Release **2026.11.06.3** deployed (08:56 EST): required department, nurse and facility
